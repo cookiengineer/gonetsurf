@@ -27,6 +27,8 @@ var whatwgIDNA = idna.New(
 	idna.MapForLookup(),
 	idna.StrictDomainName(false),
 	idna.Transitional(false),
+	idna.CheckHyphens(false),
+	idna.BidiRule(),
 )
 
 func isForbiddenHostCodePoint(character rune) bool {
