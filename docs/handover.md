@@ -1,0 +1,208 @@
+# Handover — Current Project State
+
+_Last updated: 2026-10-04._
+
+This document is the entry point for a new contributor. It describes what exists today,
+how to build and verify it, what is intentionally incomplete, and where to start next.
+The design intent lives in the other documents in this folder; this one is the honest
+snapshot.
+
+## 1. What this is
+
+`gonetsurf` is a pure-Go web browser engine. The module path is `gonetsurf` (no host
+prefix) and the target Go version is 1.27. Runtime dependencies are limited to the
+standard library and `golang.org/x/*`; in-tree forks are permitted and must record their
+upstream revision.
+
+Work is organized into Phases 0–10 (see [`implementation-plan.md`](./implementation-plan.md))
+and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
+
+## 2. Current status
+
+| Phase | Scope | State |
+|---|---|---|
+| 0 | Foundations (module, deps policy, panic barrier, fuzzing, docs) | **Done** (2 Verified, 3 Implemented) |
+| 1 | WHATWG URL, encoding sniffing, HTML microsyntaxes | **Done** (10/10 Verified) |
+| 2 | HTTP/1.1, TLS, DNS, cache, cookies, SOCKS, WebSocket, internal schemes | **Done** (18 Verified, 1 Implemented/Partial) |
+| 3 | HTML parsing (`x/net/html`) + `dom` | **Done** (6/6 Verified) |
+| 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Implemented** (1 Verified, 13 Implemented/Partial) |
+| 5–10 | Style, layout, paint, window/UI, process sandbox, JS/Web APIs | **Not started** |
+| X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
+
+Totals: **38 Verified, 16 Implemented/Partial, 60 Planned, 0 Blocked**. There are no open
+bugs recorded.
+
+There is **no browser executable yet**. Phase 0–3 deliverables are the engine's
+foundational libraries; the first runnable windowed browser is expected after Phases 4–8.
+
+## 3. Quick start
+
+```sh
+go build ./...                          # compile everything
+go vet ./...                            # static checks
+gofmt -l cmd urls parsers protocols caches storages internal dom   # formatting
+go test ./... -count=1                  # unit + integration tests
+go run ./cmd/netsurfctl deps-check      # enforce the no-third-party policy
+go run ./cmd/netsurfctl urlparse 'https://www.example.com:8443/a/b?x=1#f'
+go test ./urls/ -run TestURLParserConformance -v
+go test ./parsers/css/tokenizer/ -run TestTokenizerConformance -v
+go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
+```
+
+Current verification baseline:
+
+- 146 Go files across 34 packages, 52 test files, 205 test/fuzz/benchmark functions.
+- `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
+- WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
+- CSS tokenizer conformance: **223/223** reference tokenization cases pass.
+- CSS parser conformance: the `css-parsing-tests` entry points pass.
+- Selectors: **270** WPT validity cases pass (documented skips).
+- Property values: **590** WPT `test_valid_value`/`test_invalid_value` cases
+  pass for registered properties (Color 5 and experimental features skipped).
+- An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
+- Color 4: hex, keyword, HSL, HWB, lab/lch/oklab/oklch, and `color()`
+  corpora pass (**~7,300** cases).
+- IDNA: **2669** cases pass; encoding sniffing: **81** cases pass.
+- HTML tree construction: **1578** cases pass (192 fragment contexts plus
+  documented parser divergences skipped).
+- HTTP/1.1: framing/smuggling corpus and a `net/http` differential test pass;
+  `FuzzReadResponse` ran 1.7M executions without a crash.
+- DNS-over-TLS: local TLS DNS server test passes. WebSocket: opening handshake,
+  fragmentation, control frames, close codes, masking, and UTF-8 validation pass.
+- `netsurfctl fetch <url>` retrieves a URL end to end.
+- Verification is run through `make compliance-tests`.
+- Fuzzing: `FuzzCSS` ran 375k executions without a crash.
+- `deps-check` confirms only `golang.org/x/net` and `golang.org/x/text` (plus stdlib) are
+  in the dependency graph.
+
+## 4. Repository map (implemented)
+
+| Path | What it does |
+|---|---|
+| `urls/` | WHATWG URL parser/serializer, origin, site, IDNA, internal schemes, `data:` decoding. |
+| `parsers/html/` | `x/net/html` wrapper: encoding → parse → `dom` conversion, node budget, quirks detection, fragment parsing/serialization. |
+| `parsers/html/encodings/` | BOM/transport/meta-prescan encoding sniffing and re-decode. |
+| `parsers/html/microsyntaxes/` | HTML numeric, date/time, color, token-list, and reference parsers. |
+| `parsers/css/tokenizer/` | CSS Syntax 3 tokenizer: preprocessing, all token kinds/flags, per-token `Representation`. |
+| `parsers/css/parser/` | Component values, functions, simple blocks, rules, declarations, entry points. |
+| `parsers/css/grammar/` | Value-definition grammar engine (`\|`, `\|\|`, `&&`, multipliers, ranges). |
+| `parsers/css/selectors/` | Selectors Level 4 parsing, specificity, and the An+B microsyntax. |
+| `parsers/css/values/` | Numeric units, unit conversion, `calc()`/`min()`/`max()`/`clamp()`, `<urange>`. |
+| `parsers/css/colors/` | Color 4 parsing/serialization: hex, named, rgb/hsl/hwb, lab/oklch/color(). |
+| `parsers/css/cssom/` | Stylesheet, style rule, at-rule, and declaration objects with serialization. |
+| `parsers/css/cascade/` | Origin/importance/layer/specificity/order cascade and inheritance. |
+| `parsers/css/conditions/` | `@supports` conditions and `@import` descriptors. |
+| `parsers/css/mediaqueries/` | Media Queries 5 parsing and environment evaluation. |
+| `parsers/css/properties/` | Property registry: inheritance, initial, grammar, animation metadata. |
+| `parsers/css/animations/` | `@keyframes` and the animation shorthand. |
+| `parsers/css/nesting/` | CSS Nesting parsing and `&` resolution. |
+| `dom/` | Namespace-aware mutable DOM: nodes, documents, attributes, queries, templates, shadow scaffolding, sandbox flags. |
+| `protocols/http1/` | Custom HTTP/1.1 client: ordered headers, strict framing, chunked+trailers, pool, redirects, conditional/range. |
+| `protocols/tls/` | TLS 1.3 client config, ALPN, ECH field, GREASE values. |
+| `protocols/dns/` | DNS codec (compression), caching resolver, special-use names, DoH, DoT. |
+| `protocols/socks/` | SOCKS5 CONNECT client. |
+| `protocols/websockets/` | RFC 6455 accept key and masked frame codec. |
+| `protocols/mime/` | Content-Disposition parsing and filename sanitization. |
+| `protocols/internal/` | `about:`, `data:`, `netsurf-cache:` handlers. |
+| `caches/disk/` | Invertible URL↔filesystem mapping and JSONL journal/redirect chain. |
+| `caches/http/` | RFC 7234 policy plus the aggressive archive mode. |
+| `caches/memory/` | Generic in-memory LRU. |
+| `storages/cookies/` | RFC 6265 partitioned jar, cross-site dependency graph, CNAME-cloaking tracking-session reset. |
+| `internal/safecall/` | Panic-to-error boundary helpers. |
+| `cmd/netsurfctl/` | `deps-check` and `urlparse` maintenance commands. |
+
+The target layout (including not-yet-created packages such as `layouts/`, `rendering/`,
+`windowing/`, `webapis/`, `runtime/`, `brokers/`, `engines/`, `styles/`, `ipc/`,
+`farbling/`, and `javascripts/sobek/`) is described in
+[`architecture.md`](./architecture.md). Those are design targets; only the packages in the
+table above exist today.
+
+## 5. Known limitations and partial work
+
+These are intentional, tracked gaps rather than surprises:
+
+- **CSS is implemented but only partially verified.** All Phase 4 subsystems exist
+  (`parsers/css/*`): tokenizer, parser, grammar, selectors, values, colors, CSSOM, cascade,
+  conditions, media queries, properties, animations, and nesting. Only the tokenizer is
+  `Verified`; the rest are `Implemented` with `Spec=Partial`, pending full WPT/CSSWG
+  conformance. `dom.Matches`/`QuerySelector` still uses the Phase 3 subset; wiring it to the
+  new `selectors` package is a Phase 5 task (P5-STYLE-002).
+- **CSS parsing conformance corpus.** The public `css-parsing-tests` corpora target a
+  pre-2021 tokenizer (match tokens such as `~=`, a `unicode-range` token, and normalized
+  number representations), so they do not match the pinned 2021 specification. The parser
+  is therefore tested with hand-derived fixtures; the tokenizer, An+B, `<urange>`, and the
+  Color 4 hex/keyword/HSL/HWB corpora are vendored and pass.
+- **Color 4 lab/lch/oklab/oklch/color()** parse and serialize in their declared space, but
+  gamut mapping and full reference serialization are not implemented or conformance-tested.
+- **CSS identifier definitions.** The pinned `specifications/css/syntax-3.html` is the 2021
+  Candidate Recommendation, which predates the current "non-ASCII ident code point" ranges.
+  The tokenizer follows the current CSS Syntax 3 definition (matching WPT and browsers); the
+  pinned spec should be refreshed with `specifications/update.sh`.
+- **P2-TLS-002 (ECH/GREASE)** — GREASE values and the ECH config field are present, but
+  `crypto/tls` cannot inject GREASE or permute the ClientHello. That needs the planned
+  `protocols/tls/chrome` fork.
+- **P1-MICRO-003 (colors)** — the legacy color parser recognizes the basic HTML color set;
+  the full CSS named-color table is deferred to the CSS color parser.
+- **`x/net/html` namespaces** — the upstream parser uses short namespace names (`""`,
+  `svg`, `math`); `parsers/html` maps these to the DOM namespace URLs and back.
+- **No `sobek` fork yet.** The JavaScript engine is a Phase 10 deliverable. When vendored,
+  its non-essential third-party dependencies (`sourcemap`, `pprof`, `yaml`, and possibly
+  `semver`) must be pruned and `regexp2` replaced per the project decision.
+- **No in-tree forks exist yet**, so no `FORK.md` files are present.
+- **Specifications tree is ~50 MB** and committed for offline verification. See
+  [`specifications.md`](./specifications.md) §5 for the LFS option.
+
+## 6. Decisions that are already locked
+
+Recorded in the relevant design docs under "Decisions":
+
+- Module path `gonetsurf`; Go 1.27; stdlib + `golang.org/x/*` only.
+- DOM package is `dom` (singular); category packages are plural.
+- The WHATWG URL parser in `urls` is the only URL parser used for security/cache keys.
+- No single-letter identifiers; descriptive names; comments only where they add value.
+- Aggressive archive caching with a user-visible archive banner
+  ([`cache.md`](./cache.md)).
+- Persistent, partitioned cookie jar with a cross-site dependency graph and atomic
+  tracking-session reset that defeats CNAME-cloaked trackers
+  ([`privacy.md`](./privacy.md)).
+- OS process per site/tab with a trusted network broker, sandboxed with
+  namespaces/seccomp/Landlock/rlimits/cgroups ([`security.md`](./security.md)).
+- Farbling is deterministic per origin+session via an HMAC of an install seed.
+
+## 7. Where to look
+
+| Question | Document |
+|---|---|
+| What are we building and in what order? | [`implementation-plan.md`](./implementation-plan.md) |
+| What is done / tested / blocked? | [`task-tracking.md`](./task-tracking.md) |
+| How is the engine structured? | [`architecture.md`](./architecture.md) |
+| How does the cache map URLs to disk? | [`cache.md`](./cache.md) |
+| How is privacy/tracking handled? | [`privacy.md`](./privacy.md) |
+| How is untrusted content isolated? | [`security.md`](./security.md) |
+| Coding and test conventions | [`conventions.md`](./conventions.md) |
+| Which specs are pinned and how to refresh | [`specifications.md`](./specifications.md) |
+
+## 8. Recommended next steps
+
+1. **Phase 5 — Style resolution.** All of Phase 4 is implemented. Continue with the UA
+   stylesheet and presentational hints (P5-STYLE-001), then wire `parsers/css/selectors`
+   into a matching engine (P5-STYLE-002) and build computed-value resolution, custom
+   properties, media/conditional integration, and incremental restyle.
+2. **Vendor test corpora.** The tokenizer, An+B, `<urange>`, and Color 4 corpora are
+   vendored under `parsers/css/*/testdata/`. Add the WPT selector/values/cascade suites
+   plus a shared harness as those tasks are verified, mirroring
+   `urls/testdata/urltestdata.json`. Refreshing the pinned `syntax-3.html` to the current
+   editor's draft would remove the non-ASCII identifier divergence noted above.
+3. **Close the remaining Partial task** (TLS GREASE/ECH) when the
+   `protocols/tls/chrome` fork lands.
+4. **Fill the skeleton.** Create the remaining package directories with `doc.go` stubs as
+   their phases begin; avoid broad empty scaffolding ahead of need.
+
+## 9. Handover checklist
+
+- [x] Builds, vets, formats, and tests clean.
+- [x] Task ledger reflects reality and has no stale "no code yet" claims.
+- [x] Design docs describe both the target architecture and the current state.
+- [x] Known limitations are listed with their task IDs.
+- [x] No secrets, credentials, or generated artifacts are committed.
+- [ ] Everything under `docs/` reviewed by the next maintainer.
