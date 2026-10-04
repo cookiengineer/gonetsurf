@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"net"
+	"unicode/utf8"
 
 	"gonetsurf/protocols/http1"
 	"gonetsurf/urls"
@@ -148,8 +149,12 @@ func (connection *Conn) WriteMessage(opcode Opcode, payload []byte) error {
 	return connection.writeFrame(true, opcode, payload)
 }
 
-// WriteControl sends a control frame.
+// WriteControl sends a control frame. Control frames must be at most 125 bytes
+// and must not be fragmented.
 func (connection *Conn) WriteControl(opcode Opcode, payload []byte) error {
+	if opcode < OpcodeClose || opcode > OpcodePong || len(payload) > 125 {
+		return ErrProtocol
+	}
 	return connection.writeFrame(true, opcode, payload)
 }
 
@@ -197,6 +202,7 @@ func (connection *Conn) writeFrame(fin bool, opcode Opcode, payload []byte) erro
 func (connection *Conn) ReadMessage() (Opcode, []byte, error) {
 	var message []byte
 	var messageOpcode Opcode
+	fragmented := false
 	for {
 		fin, opcode, payload, err := connection.readFrame()
 		if err != nil {
@@ -214,17 +220,28 @@ func (connection *Conn) ReadMessage() (Opcode, []byte, error) {
 			connection.writeFrame(true, OpcodeClose, nil)
 			return 0, nil, ErrClosed
 		case OpcodeContinuation:
+			if !fragmented {
+				return 0, nil, ErrProtocol
+			}
 			message = append(message, payload...)
+			fragmented = !fin
 		case OpcodeText, OpcodeBinary:
+			if fragmented {
+				return 0, nil, ErrProtocol
+			}
 			messageOpcode = opcode
 			message = append(message, payload...)
+			fragmented = !fin
 		default:
 			return 0, nil, ErrProtocol
 		}
 		if int64(len(message)) > connection.maxPayload {
 			return 0, nil, ErrProtocol
 		}
-		if fin {
+		if fin && !fragmented {
+			if messageOpcode == OpcodeText && !utf8.Valid(message) {
+				return 0, nil, ErrProtocol
+			}
 			return messageOpcode, message, nil
 		}
 	}
@@ -235,9 +252,21 @@ func (connection *Conn) readFrame() (bool, Opcode, []byte, error) {
 	if _, err := io.ReadFull(connection.reader, header); err != nil {
 		return false, 0, nil, err
 	}
+	if header[0]&0x70 != 0 {
+		// Reserved bits must be zero.
+		return false, 0, nil, ErrProtocol
+	}
 	fin := header[0]&0x80 != 0
 	opcode := Opcode(header[0] & 0x0F)
+	if opcode >= 0x3 && opcode <= 0x7 || opcode >= 0xB {
+		// Reserved opcodes.
+		return false, 0, nil, ErrProtocol
+	}
 	masked := header[1]&0x80 != 0
+	if masked {
+		// A client must reject masked frames from the server.
+		return false, 0, nil, ErrProtocol
+	}
 	length := int64(header[1] & 0x7F)
 	switch length {
 	case 126:
@@ -253,26 +282,47 @@ func (connection *Conn) readFrame() (bool, Opcode, []byte, error) {
 		}
 		length = int64(binary.BigEndian.Uint64(buffer))
 	}
+	if opcode >= OpcodeClose {
+		// Control frames must not be fragmented and must be at most 125 bytes.
+		if !fin || length > 125 {
+			return false, 0, nil, ErrProtocol
+		}
+	}
 	if length > connection.maxPayload {
 		return false, 0, nil, ErrProtocol
-	}
-	var maskKey []byte
-	if masked {
-		maskKey = make([]byte, 4)
-		if _, err := io.ReadFull(connection.reader, maskKey); err != nil {
-			return false, 0, nil, err
-		}
 	}
 	payload := make([]byte, length)
 	if _, err := io.ReadFull(connection.reader, payload); err != nil {
 		return false, 0, nil, err
 	}
-	if masked {
-		for index := int64(0); index < length; index++ {
-			payload[index] ^= maskKey[index%4]
+	if opcode == OpcodeClose {
+		if !validClosePayload(payload) {
+			return false, 0, nil, ErrProtocol
 		}
 	}
 	return fin, opcode, payload, nil
+}
+
+// validClosePayload reports whether a close frame payload carries a valid
+// status code. See RFC 6455 §7.4.
+func validClosePayload(payload []byte) bool {
+	if len(payload) == 0 {
+		return true
+	}
+	if len(payload) == 1 {
+		return false
+	}
+	code := binary.BigEndian.Uint16(payload[:2])
+	switch {
+	case code >= 3000 && code <= 4999:
+		return true
+	case code == 1000, code == 1001, code == 1002, code == 1003:
+		return true
+	case code >= 1007 && code <= 1011:
+		return true
+	default:
+		return false
+	}
 }
 
 // Close sends a close frame and closes the underlying connection.
