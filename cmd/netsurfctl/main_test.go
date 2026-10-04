@@ -1,6 +1,33 @@
 package main
 
-import "testing"
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
+
+func TestFetchBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		io.WriteString(writer, "hello fetch")
+	}))
+	defer server.Close()
+
+	status, body, err := fetchBody(server.URL)
+	if err != nil {
+		t.Fatalf("fetchBody: %v", err)
+	}
+	if status != http.StatusOK {
+		t.Errorf("status = %d, want 200", status)
+	}
+	if string(body) != "hello fetch" {
+		t.Errorf("body = %q", string(body))
+	}
+
+	if _, _, err := fetchBody("ftp://example.com/"); err == nil {
+		t.Error("expected an error for an unsupported scheme")
+	}
+}
 
 func TestIsAllowedModule(t *testing.T) {
 	tests := []struct {

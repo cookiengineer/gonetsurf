@@ -4,18 +4,21 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
 
+	"gonetsurf/protocols/http1"
 	"gonetsurf/urls"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: netsurfctl <deps-check|urlparse> [args]")
+		fmt.Fprintln(os.Stderr, "usage: netsurfctl <deps-check|urlparse|fetch> [args]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -28,6 +31,11 @@ func main() {
 	case "urlparse":
 		if err := urlParse(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "urlparse failed:", err)
+			os.Exit(1)
+		}
+	case "fetch":
+		if err := fetch(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "fetch failed:", err)
 			os.Exit(1)
 		}
 	default:
@@ -82,6 +90,43 @@ func isAllowedModule(module string) bool {
 		}
 	}
 	return false
+}
+
+func fetch(arguments []string) error {
+	if len(arguments) != 1 {
+		return fmt.Errorf("usage: netsurfctl fetch <url>")
+	}
+	status, body, err := fetchBody(arguments[0])
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "status: %d\n", status)
+	_, err = os.Stdout.Write(body)
+	return err
+}
+
+// fetchBody retrieves a URL and returns its status code and body.
+func fetchBody(rawURL string) (int, []byte, error) {
+	target, err := urls.Parse(rawURL)
+	if err != nil {
+		return 0, nil, err
+	}
+	switch target.Scheme {
+	case "http", "https":
+	default:
+		return 0, nil, fmt.Errorf("unsupported scheme %q", target.Scheme)
+	}
+	client := &http1.Client{Transport: &http1.Transport{}}
+	response, err := client.Do(context.Background(), &http1.Request{Method: "GET", URL: target, Header: http1.Header{}})
+	if err != nil {
+		return 0, nil, err
+	}
+	defer response.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	if err != nil {
+		return 0, nil, err
+	}
+	return response.StatusCode, body, nil
 }
 
 func urlParse(arguments []string) error {
