@@ -14,8 +14,6 @@ import (
 	"golang.org/x/text/encoding/htmlindex"
 )
 
-const sniffByteCount = 1024
-
 // SniffResult is the outcome of encoding sniffing.
 type SniffResult struct {
 	// Name is the canonical encoding name.
@@ -44,9 +42,9 @@ func Sniff(contentType string, data []byte) SniffResult {
 			return SniffResult{Name: canonicalName(coding), Certain: true, coding: coding}
 		}
 	}
-	if label := Prescan(data); label != "" {
-		if coding := lookup(label); coding != nil {
-			return SniffResult{Name: canonicalName(coding), coding: coding}
+	if name := Prescan(data); name != "" {
+		if coding := lookup(name); coding != nil {
+			return SniffResult{Name: name, coding: coding}
 		}
 	}
 	coding := lookup("windows-1252")

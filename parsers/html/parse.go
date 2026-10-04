@@ -19,6 +19,9 @@ type ParseOptions struct {
 	URL         *urls.URL
 	ContentType string
 	NodeBudget  int
+	// Scripting enables the HTML parser's scripting flag, which changes how
+	// <noscript> content is parsed. It is false by default.
+	Scripting bool
 }
 
 // Parse decodes and parses an HTML byte stream into a DOM document.
@@ -28,7 +31,7 @@ func Parse(data []byte, options ParseOptions) (*dom.Document, error) {
 	if err != nil {
 		decoded = data
 	}
-	root, err := xhtml.Parse(bytes.NewReader(decoded))
+	root, err := xhtml.ParseWithOptions(bytes.NewReader(decoded), xhtml.ParseOptionEnableScripting(options.Scripting))
 	if err != nil {
 		return nil, err
 	}
