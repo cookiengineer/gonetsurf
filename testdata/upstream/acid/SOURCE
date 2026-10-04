@@ -1,0 +1,17 @@
+Acid tests
+==========
+
+Acid2 and Acid3 are vendored from Web Platform Tests:
+  Upstream: https://github.com/web-platform-tests/wpt
+  Paths:    acid/acid2/, acid/acid3/
+  License:  BSD-3-Clause (WPT)
+  Fetched:  2026-10-04
+
+Acid1 is not vendored: its canonical location
+(https://www.w3.org/Style/CSS/Test/acid1/acid1.html) currently returns 404 and
+no canonical mirror was reachable. It should be added from the Web Standards
+Project archive when available.
+
+These are rendering-level tests. They cannot pass until layout (Phase 6) and
+painting (Phase 7) exist, and Acid3 additionally needs the JavaScript engine
+(Phase 10). They are vendored now so the rendering phases have a target.

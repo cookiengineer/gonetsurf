@@ -1,0 +1,15 @@
+Web Platform Tests (WPT)
+========================
+
+Upstream: https://github.com/web-platform-tests/wpt
+License:  BSD-3-Clause (WPT)
+Fetched:  2026-10-04
+
+Vendored subsets:
+  url/resources/            URL parser conformance and IDNA test data
+  acid/                     Acid2 and Acid3 rendering tests (used from Phase 7)
+  css/selectors/parsing/    Selectors Level 4 validity tables
+  css/*/parsing/            Property value valid/invalid tables (extracted by corpusgen)
+
+Only the files needed for offline conformance runs are vendored. The
+normalized corpora consumed by `go test` are produced by `cmd/corpusgen`.

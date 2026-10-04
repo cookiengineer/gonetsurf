@@ -1,0 +1,15 @@
+html5lib-tests
+==============
+
+Upstream: https://github.com/html5lib/html5lib-tests
+License:  MIT (see LICENSE in this directory)
+Fetched:  2026-10-04
+
+The tree-construction and tokenizer suites were copied from
+golang.org/x/net v0.59.0 (html/testdata/html5lib-tests); the encoding suite was
+fetched from the upstream repository.
+
+Vendored subsets:
+  encoding/          byte-stream decoding and sniffing tests
+  tokenizer/         HTML tokenizer tests
+  tree-construction/ HTML tree construction tests
