@@ -34,13 +34,13 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 3 HTML/DOM | 6 | 6 | 0 | 0 | 0 |
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
-| 6 Layout | 14 | 1 | 3 | 10 | 0 |
+| 6 Layout | 14 | 1 | 5 | 8 | 0 |
 | 7 Paint/Fonts/Images/Color | 10 | 0 | 0 | 10 | 0 |
 | 8 Window/UI | 6 | 0 | 0 | 6 | 0 |
 | 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **114** | **57** | **7** | **50** | **0** |
+| **Total** | **114** | **57** | **9** | **48** | **0** |
 
 ## Progress log
 
@@ -227,6 +227,20 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   components, and overflow so layout consumes real edge values. P6-LAYOUT-001 is
   `Verified`; P6-LAYOUT-002/003/004 are `Implemented`/`Partial`.
 
+- **2026-10-28 (Phase 6 continued):** Added intrinsic min-/max-content and
+  fit-content sizing, parent/child margin collapsing with padding/border/BFC
+  blockers, and positioning (`relative`, `absolute`, `fixed`, containing-block
+  resolution, auto left/right stretching, bottom anchoring, and z-index
+  metadata). P6-LAYOUT-007 is now `Implemented`/`Partial`; intrinsic sizing
+  improves P6-LAYOUT-002 and margin collapsing improves P6-LAYOUT-003.
+
+- **2026-10-28 (Phase 6 flexbox):** Added basic flex layout for
+  `display:flex`: row/column and reverse directions, grow/shrink distribution,
+  justify-content, align-items/align-self, gap, order, auto/intrinsic bases, and
+  flex/flex-flow/gap shorthand expansion. P6-LAYOUT-008 is now
+  `Implemented`/`Partial` (wrapping, baseline alignment, and full flex item
+  semantics remain).
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -327,8 +341,8 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | P6-LAYOUT-004 | Inline formatting context | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-005 | Table formatting context | Planned | - | - | Unassessed | - |
 | P6-LAYOUT-006 | Floats | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-007 | Positioning | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-008 | Flexbox | Planned | - | - | Unassessed | - |
+| P6-LAYOUT-007 | Positioning | Implemented | Y | P | Partial | - |
+| P6-LAYOUT-008 | Flexbox | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-009 | Grid | Planned | - | - | Unassessed | - |
 | P6-LAYOUT-010 | Writing modes and logical properties | Planned | - | - | Unassessed | - |
 | P6-LAYOUT-011 | Bidi and text runs | Planned | - | - | Unassessed | - |

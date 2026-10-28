@@ -19,9 +19,10 @@ cycles, `revert`), conditional rules, media queries, animations, and nesting. **
 (style resolution) is complete**: indexed selector matching, the UA stylesheet,
 presentational hints, cascade/inheritance, custom properties, relative-unit and
 per-property computed values, conditional integration, and incremental restyle are all
-implemented and tested. Phase 6 (layout) is in progress: the box tree, box model, block
-layout with margin collapsing, and simple inline line layout are implemented; the remaining
-formatting contexts are next. See [`handover.md`](./handover.md) for the full handover and
+implemented and tested. Phase 6 (layout) is in progress: the box tree, box model, intrinsic
+sizing, block layout with sibling and parent/child margin collapsing, simple inline line
+layout, relative/absolute/fixed positioning, and basic flexbox are implemented; the
+remaining formatting contexts are next. See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 
 ## Documents

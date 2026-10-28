@@ -27,11 +27,11 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 3 | HTML parsing (`x/net/html`) + `dom` | **Done** (6/6 Verified) |
 | 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Done** (14/14 Verified) |
 | 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
-| 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **In progress** (1 Verified, 3 Implemented/Partial, 10 Planned) |
+| 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **In progress** (1 Verified, 5 Implemented/Partial, 8 Planned) |
 | 7–10 | Paint/window/UI/process sandbox/JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **57 Verified, 7 Implemented/Partial, 50 Planned, 0 Blocked**. There are no open
+Totals: **57 Verified, 9 Implemented/Partial, 48 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is **no browser executable yet**. Phase 0–3 deliverables are the engine's
@@ -53,7 +53,7 @@ go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
 
 Current verification baseline:
 
-- 172 Go files across 37 packages, 65 test files, 284 test/fuzz/benchmark functions.
+- 173 Go files across 37 packages, 65 test files, 294 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -100,9 +100,12 @@ Current verification baseline:
 - Incremental restyle: DOM mutation versions and dirty-node tracking drive cached
   subtree restyles; `:has()` stylesheets fall back to a full restyle.
 - Layout: box-tree construction, anonymous block boxes, `display:contents`, box
-  model/sizing, block layout with sibling margin collapsing, and simple inline
-  line layout with word wrapping are tested. Shorthand expansion covers margin,
-  padding, border, border components, and overflow.
+  model/sizing (including intrinsic min-/max-content and fit-content), block
+  layout with sibling and parent/child margin collapsing, simple inline line
+  layout with word wrapping, relative/absolute/fixed positioning, and basic
+  row/column flexbox with grow/shrink, alignment, gaps, and order are tested.
+  Shorthand expansion covers margin, padding, border, border components,
+  overflow, flex, flex-flow, and gap.
 - Matching benchmarks: `dom` selector matching and `styles.Matcher.Elements` are
   benchmarked; the DOM matcher also has a fuzz target.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
@@ -181,10 +184,11 @@ These are intentional, tracked gaps rather than surprises:
   line-height, opacity, border widths, and generic length/angle/time conversion are
   implemented. Layout-specific used values (percentage resolution against containing
   blocks, intrinsic sizing, text metrics) belong to Phase 6.
-- **Layout is at its foundation stage.** P6-LAYOUT-002/003/004 cover the box model,
-  sibling margin collapsing, and simple line wrapping. Intrinsic sizing, table/flex/grid,
-  positioning, floats, writing modes, bidi, text shaping, and overflow/scroll containers
-  remain planned Phase 6 tasks.
+- **Layout is at its foundation stage.** P6-LAYOUT-002/003/004/007/008 cover the box
+  model, intrinsic sizing, sibling and parent/child margin collapsing, simple line
+  wrapping, relative/absolute/fixed positioning, and basic flexbox. Flex wrapping and
+  baseline alignment, sticky positioning, table/grid, floats, writing modes, bidi, text
+  shaping, and overflow/scroll containers remain planned Phase 6 tasks.
 - **Incremental restyle is conservative.** Dirty nodes restyle their parent subtree;
   stylesheets using `:has()` trigger a full restyle because descendant changes can
   invalidate ancestors. Selector indexes are rebuilt on restyle.
@@ -251,9 +255,9 @@ Recorded in the relevant design docs under "Decisions":
 
 ## 8. Recommended next steps
 
-1. **Continue Phase 6 — Layout.** Add intrinsic sizing and parent/child margin
-   collapsing, then table/flex/grid formatting contexts, floats, positioning,
-   writing modes, bidi, text metrics, overflow/scroll, and incremental layout.
+1. **Continue Phase 6 — Layout.** Add table/grid formatting contexts, float layout,
+   sticky positioning, flex wrapping/baseline alignment, writing modes, bidi, text
+   metrics, overflow/scroll, and incremental layout.
 2. **Deepen CSS feature coverage** as Phase 6/7 need it: full CSSOM IDL surface, media
    query serialization and remaining features, and cascade edge cases.
 3. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
