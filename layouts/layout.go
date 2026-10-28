@@ -23,13 +23,15 @@ type Layout struct {
 	ViewportHeight float64
 	// MeasureText overrides the default simple advance-width measurement.
 	MeasureText func(text string, style *styles.Style) (width, height float64)
+	// Shaper provides simple glyph advances when MeasureText is not set.
+	Shaper TextShaper
 
 	positioned []*Box
 }
 
 // New creates a layout context for a viewport.
 func New(viewportWidth, viewportHeight float64) *Layout {
-	return &Layout{ViewportWidth: viewportWidth, ViewportHeight: viewportHeight}
+	return &Layout{ViewportWidth: viewportWidth, ViewportHeight: viewportHeight, Shaper: SimpleShaper{}}
 }
 
 // Layout lays out root in the viewport.
@@ -41,6 +43,7 @@ func (layout *Layout) Layout(root *Box) {
 	layout.layoutBlock(root, 0, 0, layout.ViewportWidth, layout.ViewportHeight)
 	layout.layoutPositioned()
 	layout.applyRelativeOffsets(root)
+	layout.computeOverflow(root)
 }
 
 func (layout *Layout) layoutBlock(box *Box, containingX, containingY, containingWidth, containingHeight float64) {
@@ -301,20 +304,16 @@ func (layout *Layout) measureText(text string, style *styles.Style) (float64, fl
 	if layout.MeasureText != nil {
 		return layout.MeasureText(text, style)
 	}
-	fontSize := 16.0
-	lineHeight := 19.2
-	if style != nil {
-		if value, ok := parseComputedPixels(style.GetString("font-size")); ok && value > 0 {
-			fontSize = value
-		}
-		lineHeight = fontSize * 1.2
-		if value, ok := parseComputedPixels(style.GetString("line-height")); ok && value > 0 {
-			lineHeight = value
-		} else if value, ok := parseComputedNumber(style.GetString("line-height")); ok && value > 0 {
-			lineHeight = fontSize * value
-		}
+	glyphs := layout.shapeText(text, style)
+	width := 0.0
+	for _, glyph := range glyphs {
+		width += glyph.Advance
 	}
-	return float64(len([]rune(text))) * fontSize * 0.5, lineHeight
+	_, lineHeight := fontMetrics(style)
+	if lineHeight <= 0 {
+		lineHeight = 19.2
+	}
+	return width, lineHeight
 }
 
 func (layout *Layout) resolveWidth(box *Box, containingWidth, marginHorizontal, paddingBorderHorizontal float64) float64 {
@@ -688,4 +687,30 @@ func shiftBox(box *Box, deltaX, deltaY float64) {
 	for _, child := range box.Children {
 		shiftBox(child, deltaX, deltaY)
 	}
+}
+
+func (layout *Layout) computeOverflow(box *Box) (float64, float64) {
+	if box == nil {
+		return 0, 0
+	}
+	maxRight := box.ContentX + box.ContentWidth
+	maxBottom := box.ContentY + box.ContentHeight
+	for _, child := range box.Children {
+		childRight, childBottom := layout.computeOverflow(child)
+		if right := child.X + child.Width; right > maxRight {
+			maxRight = right
+		}
+		if bottom := child.Y + child.Height; bottom > maxBottom {
+			maxBottom = bottom
+		}
+		if childRight > maxRight {
+			maxRight = childRight
+		}
+		if childBottom > maxBottom {
+			maxBottom = childBottom
+		}
+	}
+	box.ScrollWidth = math.Max(0, maxRight-box.ContentX)
+	box.ScrollHeight = math.Max(0, maxBottom-box.ContentY)
+	return maxRight, maxBottom
 }

@@ -90,6 +90,8 @@ type Box struct {
 
 	IntrinsicMinWidth  float64
 	IntrinsicMaxWidth  float64
+	ScrollWidth        float64
+	ScrollHeight       float64
 	intrinsicsComputed bool
 }
 

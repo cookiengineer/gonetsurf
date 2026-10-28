@@ -7,6 +7,8 @@ import (
 	"gonetsurf/dom"
 	"gonetsurf/parsers/css/cssom"
 	"gonetsurf/styles"
+
+	"golang.org/x/text/unicode/bidi"
 )
 
 func testDocument() (*dom.Document, *dom.Node) {
@@ -784,5 +786,116 @@ func TestFloatLayout(t *testing.T) {
 	}
 	if afterBox.Y != 20 {
 		t.Errorf("after y = %v, want 20", afterBox.Y)
+	}
+}
+
+func TestOverflowMetrics(t *testing.T) {
+	document, body := testDocument()
+	parent := document.CreateElement("div")
+	parent.SetAttribute("class", "parent")
+	child := document.CreateElement("div")
+	child.SetAttribute("class", "child")
+	parent.AppendChild(child)
+	absolute := document.CreateElement("div")
+	absolute.SetAttribute("class", "absolute")
+	parent.AppendChild(absolute)
+	body.AppendChild(parent)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.parent { position:relative; display:block; width:50px; height:20px; margin:0; padding:0; border:0 }
+		.child { display:block; width:40px; height:40px; margin:0; padding:0; border:0 }
+		.absolute { position:absolute; left:60px; top:0; width:20px; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	parentBox := findBox(root, parent)
+	if parentBox.ScrollWidth != 80 || parentBox.ScrollHeight != 40 {
+		t.Errorf("parent scroll = %vx%v, want 80x40", parentBox.ScrollWidth, parentBox.ScrollHeight)
+	}
+}
+
+func TestTextShaper(t *testing.T) {
+	glyphs := (SimpleShaper{}).Shape(TextRun{Text: "ab", FontSize: 16})
+	if len(glyphs) != 2 || glyphs[0].Advance != 8 || glyphs[1].Advance != 8 {
+		t.Errorf("glyphs = %#v", glyphs)
+	}
+	glyphs = (SimpleShaper{}).Shape(TextRun{Text: "a b", FontSize: 16, LetterSpacing: 2, WordSpacing: 4})
+	if len(glyphs) != 3 || glyphs[0].Advance != 10 || glyphs[1].Advance != 14 || glyphs[2].Advance != 10 {
+		t.Errorf("spaced glyphs = %#v", glyphs)
+	}
+
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	paragraph.AppendChild(document.CreateTextNode("a b"))
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; font-size:16px; line-height:19.2px; letter-spacing:2px; word-spacing:4px; margin:0; padding:0; border:0 }
+	`)
+	styleMap := engine.ComputeDocumentTree(document)
+	layout := New(400, 600)
+	width, height := layout.measureText("a b", styleMap[paragraph])
+	if width != 34 || height != 19.2 {
+		t.Errorf("measured = %vx%v, want 34x19.2", width, height)
+	}
+}
+
+func TestBidiSegmentation(t *testing.T) {
+	runs := SegmentBidi("hello", bidi.LeftToRight)
+	if len(runs) != 1 || runs[0].Text != "hello" || runs[0].Direction != bidi.LeftToRight {
+		t.Errorf("ltr runs = %#v", runs)
+	}
+	runs = SegmentBidi("abc \u05d0\u05d1\u05d2", bidi.LeftToRight)
+	if len(runs) < 2 {
+		t.Fatalf("mixed runs = %#v", runs)
+	}
+	hasRTL := false
+	for _, run := range runs {
+		if run.Direction == bidi.RightToLeft && run.Text != "" {
+			hasRTL = true
+		}
+	}
+	if !hasRTL {
+		t.Errorf("mixed runs have no RTL run: %#v", runs)
+	}
+}
+
+func TestDocumentLayoutCache(t *testing.T) {
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	paragraph.SetAttribute("class", "item")
+	paragraph.AppendChild(document.CreateTextNode("hello"))
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; width:100px; height:10px; margin:0; padding:0; border:0 }
+		.wide { width:200px }
+	`)
+	cache := NewDocumentLayout(document, engine, 400, 600)
+	first := cache.Reflow()
+	firstParagraph := findBox(first, paragraph)
+	if firstParagraph.Width != 100 {
+		t.Errorf("first width = %v, want 100", firstParagraph.Width)
+	}
+	if cache.Reflow() != first {
+		t.Error("unchanged document should reuse the cached box tree")
+	}
+
+	paragraph.AddClass("wide")
+	second := cache.Reflow()
+	if second == first {
+		t.Error("mutated document should rebuild the box tree")
+	}
+	if got := findBox(second, paragraph).Width; got != 200 {
+		t.Errorf("restyled width = %v, want 200", got)
+	}
+
+	cache.ViewportWidth = 800
+	cache.Invalidate()
+	third := cache.Reflow()
+	if third == second {
+		t.Error("invalidated viewport should rebuild the box tree")
 	}
 }
