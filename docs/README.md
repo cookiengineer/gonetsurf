@@ -25,7 +25,7 @@ logical properties, vertical flow, line-level bidi, generic-family text metrics 
 kerning, scrollbar-aware overflow, and dirty-subtree reflow all exist. A 35-case
 data-driven layout conformance harness passes, and `netsurfctl layout` exposes the full
 parse → style → layout pipeline for diagnostics. Three tasks (P6-LAYOUT-007/012/013)
-remain Partial only for their Phase 7 paint/font residuals. Phase 7 painting has started:
+remain Partial only for their Phase 7 paint/font residuals. Phase 7 (painting) is complete:
 the `rendering` rasterizer is Verified (surfaces, paths, anti-aliasing, stroking,
 clipping, Porter-Duff), backgrounds/borders/radii/shadows, PNG/JPEG/GIF/WebP image
 decoding, Color 4 conversions (sRGB, Display P3, Lab/LCH, OKLab/OKLCH, and
@@ -39,9 +39,12 @@ rendered pages (`netsurfctl show`). Phase 7 is complete: 10 tasks Verified and
 OpenType features, 3D transforms). Phase 8 is implemented: X11 input, clipboard,
 MIT-SHM, tab/session model, rasterized browser chrome, and the `cmd/netsurf`
 interactive shell; P8-SHELL-002 remains Partial for full browsing-context edges.
-Phase 9 IPC framing, shared memory, and supervision are Verified; sandbox and
-broker primitives are implemented but not yet wired through sandboxed processes.
-See [`handover.md`](./handover.md) for the full handover and
+Phase 9 is complete: IPC framing/shared memory, process supervision, sandbox
+primitives, the network broker (cache/cookies + INET seccomp guard), and the
+persistent storage broker are Verified. The sandboxed `netsurf` shell fetches
+and stores everything through the broker. Totals: **91 Verified, 8 Partial,
+18 Planned**. Phase 10 (JavaScript/Web APIs) and the cross-cutting backlog
+remain. See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 
 ## Documents

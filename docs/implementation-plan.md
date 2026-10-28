@@ -28,14 +28,15 @@ work.
 > transforms with replaced images, @font-face, SVG, and compositor/damage
 > tracking are implemented; the headless renderer, pixel comparator, and
 > reftest runner are implemented (`netsurfctl render`, `netsurfctl reftest`),
-> and the early X11 presenter slice renders pages in a window (`netsurfctl show`).
+> and the X11 shell renders interactive pages (`netsurf show`).
 > Phase 7 is complete: 10 tasks Verified, 3 Partial with recorded dependencies
 > (WOFF2/Brotli, font-display timing, OpenType features, 3D transforms). Phase 8
 > is implemented: X11 input, clipboard, MIT-SHM, browser tabs/session, rasterized
 > chrome, and the interactive `cmd/netsurf` shell; P8-SHELL-002 remains Partial
-> for full browsing-context edges. Phase 9 IPC framing, shared memory, and
-> process supervision are Verified; sandbox and network/storage broker
-> primitives are Implemented/Partial pending the sandboxed process wiring.
+> for full browsing-context edges. Phase 9 IPC framing/shared memory, process
+> supervision, sandbox primitives, the network broker (cache/cookies + INET
+> seccomp guard), and the persistent storage broker are Verified. Phase 9 is
+> complete; Phase 10 and the cross-cutting backlog remain.
 > See [`handover.md`](./handover.md) for the status and gaps.
 
 ## How to read a task

@@ -4,13 +4,15 @@ package shells
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	htmlstd "html"
 	"image"
-	"io"
 	"strings"
 	"time"
 
+	"gonetsurf/brokers/network"
+	"gonetsurf/brokers/storage"
 	"gonetsurf/browsers"
 	"gonetsurf/dom"
 	"gonetsurf/parsers/css/cssom"
@@ -19,8 +21,6 @@ import (
 	"gonetsurf/styles"
 	"gonetsurf/urls"
 	"gonetsurf/windowing"
-
-	"gonetsurf/protocols/http1"
 )
 
 const (
@@ -35,9 +35,17 @@ type pageState struct {
 	url      *urls.URL
 }
 
+// BrokerClients groups the capability-scoped broker clients used by a shell.
+type BrokerClients struct {
+	Network *network.Client
+	Storage *storage.Client
+}
+
 // Shell owns the browser model and the current page state.
 type Shell struct {
 	Browser *browsers.Browser
+	Network *network.Client
+	Storage *storage.Client
 	Width   int
 	Height  int
 
@@ -51,14 +59,25 @@ type Shell struct {
 	dirty bool
 }
 
-// New returns a shell with one blank tab.
-func New(width, height int, initial *urls.URL) *Shell {
+// New returns a shell with one blank tab and optional broker clients.
+func New(width, height int, initial *urls.URL, brokers ...BrokerClients) *Shell {
 	shell := &Shell{Browser: browsers.New(), Width: width, Height: height, dirty: true}
+	if len(brokers) > 0 {
+		shell.Network = brokers[0].Network
+		shell.Storage = brokers[0].Storage
+	}
 	shell.OmniboxText = ""
 	if initial != nil {
 		shell.navigate(initial.String())
 	}
 	return shell
+}
+
+// NavigateInitial navigates the active tab after broker clients are attached.
+func (shell *Shell) NavigateInitial(initial *urls.URL) {
+	if initial != nil {
+		shell.navigate(initial.String())
+	}
 }
 
 // Dirty reports whether the shell needs a repaint.
@@ -362,7 +381,7 @@ func (shell *Shell) syncActiveTab() {
 		shell.OmniboxText = ""
 	}
 	shell.Caret = len(shell.OmniboxText)
-	shell.loadActiveTab()
+	shell.loadActiveTab(false)
 }
 
 func (shell *Shell) cycleTab(direction int) {
@@ -431,7 +450,7 @@ func (shell *Shell) navigate(input string) {
 	shell.Caret = len(shell.OmniboxText)
 	shell.Status = "Loading " + parsed.String()
 	shell.Error = ""
-	shell.loadActiveTab()
+	shell.loadActiveTab(false)
 	if tab.URL != nil {
 		shell.OmniboxText = tab.URL.String()
 		shell.Caret = len(shell.OmniboxText)
@@ -444,10 +463,10 @@ func (shell *Shell) reload() {
 		return
 	}
 	shell.Browser.Reload()
-	shell.loadActiveTab()
+	shell.loadActiveTab(true)
 }
 
-func (shell *Shell) loadActiveTab() {
+func (shell *Shell) loadActiveTab(reload bool) {
 	tab := shell.Browser.ActiveTab()
 	if tab == nil || tab.URL == nil {
 		shell.page = nil
@@ -459,7 +478,7 @@ func (shell *Shell) loadActiveTab() {
 		return
 	}
 	shell.Status = "Loading " + tab.URL.String()
-	source, pageURL, err := shell.fetch(tab.URL)
+	source, pageURL, err := shell.fetch(tab.URL, reload)
 	if err != nil {
 		shell.Error = err.Error()
 		shell.page = nil
@@ -499,50 +518,105 @@ func documentTitle(document *dom.Document) string {
 	return title
 }
 
-func (shell *Shell) fetch(target *urls.URL) ([]byte, *urls.URL, error) {
+func (shell *Shell) fetch(target *urls.URL, reload bool) ([]byte, *urls.URL, error) {
 	switch target.Scheme {
 	case "http", "https":
+		if shell.Network == nil {
+			return nil, target, fmt.Errorf("network broker is unavailable")
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		client := &http1.Client{Transport: &http1.Transport{}}
-		response, err := client.Do(ctx, &http1.Request{Method: "GET", URL: target, Header: http1.Header{}})
+		response, err := shell.Network.Fetch(ctx, network.Request{
+			URL:       target.String(),
+			Method:    "GET",
+			Partition: target.Site(),
+			Reload:    reload,
+		})
 		if err != nil {
 			return nil, target, err
 		}
-		defer response.Close()
-		body, err := io.ReadAll(io.LimitReader(response.Body, 8<<20))
-		if err != nil {
-			return nil, target, err
+		if response.Status < 200 || response.Status >= 300 {
+			return nil, target, fmt.Errorf("HTTP %d", response.Status)
 		}
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return nil, target, fmt.Errorf("HTTP %d", response.StatusCode)
+		if len(response.Body) > 8<<20 {
+			return nil, target, fmt.Errorf("response is too large")
 		}
-		return body, target, nil
+		return response.Body, target, nil
 	default:
 		return nil, target, fmt.Errorf("unsupported scheme %q", target.Scheme)
 	}
 }
 
+func (shell *Shell) fetchResource(resource string) ([]byte, error) {
+	target, err := urls.Parse(resource)
+	if err != nil {
+		return nil, err
+	}
+	if target.Scheme != "http" && target.Scheme != "https" && target.Scheme != "data" {
+		return nil, fmt.Errorf("unsupported resource scheme %q", target.Scheme)
+	}
+	if target.Scheme == "data" {
+		_, body, ok := target.DataURL()
+		if !ok {
+			return nil, fmt.Errorf("invalid data URL")
+		}
+		return body, nil
+	}
+	if shell.Network == nil {
+		return nil, fmt.Errorf("network broker is unavailable")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	response, err := shell.Network.Fetch(ctx, network.Request{URL: target.String(), Method: "GET", Partition: target.Site()})
+	if err != nil {
+		return nil, err
+	}
+	if response.Status < 200 || response.Status >= 300 {
+		return nil, fmt.Errorf("HTTP %d", response.Status)
+	}
+	return response.Body, nil
+}
+
+// SaveSession stores the browser session through the storage broker.
+func (shell *Shell) SaveSession(ctx context.Context) error {
+	if shell.Storage == nil {
+		return nil
+	}
+	data, err := json.Marshal(shell.Browser.Session())
+	if err != nil {
+		return err
+	}
+	return shell.Storage.Set(ctx, "session", "gonetsurf", "active", data)
+}
+
+// LoadSession restores a session from the storage broker when available.
+func (shell *Shell) LoadSession(ctx context.Context) error {
+	if shell.Storage == nil {
+		return nil
+	}
+	data, found, err := shell.Storage.Get(ctx, "session", "gonetsurf", "active")
+	if err != nil || !found {
+		return err
+	}
+	var session browsers.Session
+	if err := json.Unmarshal(data, &session); err != nil {
+		return err
+	}
+	restored, err := browsers.Restore(session)
+	if err != nil {
+		return err
+	}
+	shell.Browser = restored
+	shell.syncActiveTab()
+	return nil
+}
+
 func (shell *Shell) resourceOptions(base *urls.URL) rendering.Options {
 	return rendering.Options{
 		Images: rendering.URLImageProvider{
-			Base: base,
-			Fetch: func(resource string) ([]byte, error) {
-				parsed, err := urls.Parse(resource)
-				if err != nil {
-					return nil, err
-				}
-				body, _, err := shell.fetch(parsed)
-				return body, err
-			},
+			Base:  base,
+			Fetch: shell.fetchResource,
 		},
-		LoadFont: func(resource string) ([]byte, error) {
-			parsed, err := urls.Parse(resource)
-			if err != nil {
-				return nil, err
-			}
-			body, _, err := shell.fetch(parsed)
-			return body, err
-		},
+		LoadFont: shell.fetchResource,
 	}
 }

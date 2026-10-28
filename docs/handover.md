@@ -30,24 +30,26 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (11 Verified, 3 Partial for Phase 7 paint/font residuals) |
 | 7 | Paint/fonts/images/color | **Done** (10 Verified, 3 Partial with recorded dependencies; no Planned tasks) |
 | 8 | X11 window/UI shell | **Done** (5 Verified, 1 Partial for full browsing-context edges) |
-| 9 | Process sandbox/brokers | **Started** (IPC/shared memory/supervisor Verified; sandbox and brokers Partial) |
+| 9 | Process sandbox/brokers | **Done** (6/6 Verified) |
 | 10 | JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **88 Verified, 11 Implemented/Partial, 18 Planned, 0 Blocked**. There are no open
+Totals: **91 Verified, 8 Implemented/Partial, 18 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is now an interactive browser executable: `go run ./cmd/netsurf [url]` opens an
 X11 window with a rasterized tab strip, omnibox, status/privacy bars, keyboard/mouse
-routing, clipboard support, and real page rendering. Phases 0–7 provide the engine;
-Phase 8's X11 input, clipboard, MIT-SHM, shell, and tab/session model are implemented.
+routing, clipboard support, and real page rendering. Phases 0–7 provide the engine,
+Phase 8 adds the X11 input/clipboard/MIT-SHM shell and tab/session model, and Phase 9
+puts network/cookie/cache/storage access behind a separate broker and sandboxes the
+shell with a read-only Landlock view and INET-socket seccomp guard.
 
 ## 3. Quick start
 
 ```sh
 go build ./...                          # compile everything
 go vet ./...                            # static checks
-gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts rendering windowing   # formatting
+gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts rendering windowing browsers ipc runtime brokers shells   # formatting
 go test ./... -count=1                  # unit + integration tests
 go run ./cmd/netsurfctl deps-check      # enforce the no-third-party policy
 go run ./cmd/netsurfctl urlparse 'https://www.example.com:8443/a/b?x=1#f'
@@ -57,12 +59,12 @@ go run ./cmd/netsurfctl show page.html 800 600               # paint in an X11 w
 go run ./cmd/netsurf https://example.com/                    # interactive browser shell
 go test ./urls/ -run TestURLParserConformance -v
 go test ./parsers/css/tokenizer/ -run TestTokenizerConformance -v
-go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
+go test ./urls/ -run='^$' -fuzz='^FuzzParse$' -fuzztime=30s
 ```
 
 Current verification baseline:
 
-- 294 Go files across 53 packages, 119 test files, 517 test/fuzz/benchmark functions.
+- 297 Go files across 53 packages, 120 test files, 525 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -182,9 +184,14 @@ Current verification baseline:
   with restart/backoff/stop policies; `runtime/sandbox` provides rlimits,
   no-new-privs, capability dropping, namespaces, cgroups, Landlock, and seccomp
   primitives. Landlock denial and kill/restart behavior are tested.
-- Brokers: `brokers/network` performs capability-scoped HTTP fetches over IPC;
-  `brokers/storage` implements a partition/origin-isolated key-value store over
-  IPC with authorization and isolation tests.
+- Brokers: `cmd/netsurf` spawns a separate broker process on private Unix
+  sockets. `brokers/network` performs capability-scoped HTTP fetches with a
+  partition-keyed Vary-aware response cache and persistent cookies;
+  `brokers/storage` provides a persistent partition/origin-isolated key-value
+  store. The shell's page/resource fetches and session persistence go through
+  the brokers, then it installs an unprivileged sandbox baseline (rlimits,
+  no-new-privs, capability drop, read-only Landlock) plus an AF_INET/AF_INET6
+  seccomp guard.
 - Headless paint: `rendering.RenderDocument` drives parse → style → layout → paint,
   and `netsurfctl render` writes the result to PNG. The E2E golden
   (`rendering/testdata/golden/page.png`) exercises backgrounds, borders, and
@@ -335,12 +342,13 @@ These are intentional, tracked gaps rather than surprises:
   metadata is decoded but only the first frame is painted. The WPT reftest
   corpus is not vendored; the local reftest comparator and golden corpus are the
   current baseline.
-- **Color conversion clips rather than gamut-maps.** All CSS Color 4 spaces now
-  convert to sRGB, but out-of-gamut values are channel-clipped; perceptual
-  gamut mapping and WPT color-conversion vectors remain for P7-COLOR-001.
-- **The X11 backend is a presenter only.** It opens a window, paints, tracks
-  resizes, and handles WM_DELETE, but input, clipboard, and MIT-SHM uploads are
-  P8-X11-002/003. The integration test is skipped when `DISPLAY` is unset.
+- **Color conversion uses a chroma-clamp gamut map.** All CSS Color 4 spaces
+  convert to sRGB; out-of-gamut values reduce OKLCH chroma to fit. The CSS
+  perceptual/JND gamut-mapping algorithm and WPT conversion vectors are not yet
+  implemented.
+- **The X11 backend is complete for X11 but not Wayland.** It handles input,
+  clipboard, MIT-SHM, resize, and WM_DELETE; a Wayland backend is Phase 10. The
+  integration tests are skipped when `DISPLAY` is unset.
 - **P2-TLS-002 (ECH/GREASE)** — GREASE values and the ECH config field are present, but
   `crypto/tls` cannot inject GREASE or permute the ClientHello. That needs the planned
   `protocols/tls/chrome` fork.
@@ -398,9 +406,11 @@ Recorded in the relevant design docs under "Decisions":
    reftest subset and CI thresholds, then close the remaining non-blocking
    gaps (`background-blend-mode`, SVG text/use/clipPath/mask/pattern/filter,
    animated image playback).
-4. **Finish Phase 9.** Wire the renderer through the IPC transport, move
-   sockets/cache/cookies into the network broker, back the storage broker with
-   persistent partitioned storage, and run the full sandbox escape suite.
+4. **Start Phase 10.** Implement the pluggable/activatable JavaScript engine
+   interface (sobek vendoring is a dependency decision), event/task scheduling,
+   farbled Web API bindings, CSS animation runtime, paged media, Wayland, HTTP/2,
+   and OpenType shaping. The renderer can also be split into its own supervised
+   process using the completed IPC/shared-memory/broker stack.
 5. **Deepen CSS feature coverage** as later phases need it: full CSSOM IDL
    surface, media query serialization, and cascade edge cases.
 6. **Close the remaining Partial network task** (TLS GREASE/ECH) when the

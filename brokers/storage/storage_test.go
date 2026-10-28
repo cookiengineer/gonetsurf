@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"net"
+	"path/filepath"
 	"testing"
 
 	"gonetsurf/ipc"
@@ -62,5 +63,34 @@ func TestStorageRejectsCapability(t *testing.T) {
 	client := &Client{Conn: ipc.NewConn(clientSide), Token: wrongToken}
 	if _, _, err := client.Get(context.Background(), "p", "o", "k"); err == nil {
 		t.Fatal("expected an authorization error")
+	}
+}
+
+func TestFileStorePersistence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "storage.json")
+	store, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Set("site", "https://example.com", "key", []byte("value")); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, found := reloaded.Get("site", "https://example.com", "key")
+	if !found || string(value) != "value" {
+		t.Errorf("reloaded = (%q,%v)", value, found)
+	}
+	if err := reloaded.Delete("site", "https://example.com", "key"); err != nil {
+		t.Fatal(err)
+	}
+	again, err := NewFileStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, found := again.Get("site", "https://example.com", "key"); found {
+		t.Error("deleted value persisted")
 	}
 }

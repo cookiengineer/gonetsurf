@@ -8,20 +8,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"gonetsurf/ipc"
 	"gonetsurf/protocols/http1"
+	"gonetsurf/storages/cookies"
 	"gonetsurf/urls"
 )
 
 // Request is a broker fetch request.
 type Request struct {
-	URL    string              `json:"url"`
-	Method string              `json:"method,omitempty"`
-	Header map[string][]string `json:"header,omitempty"`
+	URL       string              `json:"url"`
+	Method    string              `json:"method,omitempty"`
+	Partition string              `json:"partition,omitempty"`
+	Reload    bool                `json:"reload,omitempty"`
+	Header    map[string][]string `json:"header,omitempty"`
 }
 
 // Response is a broker fetch response.
@@ -39,6 +43,8 @@ type Fetcher interface {
 // HTTPFetcher fetches HTTP(S) requests with the project HTTP client.
 type HTTPFetcher struct {
 	Client *http1.Client
+	Jar    *cookies.Jar
+	Cache  *Cache
 }
 
 // Fetch implements Fetcher.
@@ -54,10 +60,33 @@ func (fetcher HTTPFetcher) Fetch(ctx context.Context, request Request) (Response
 	if method == "" {
 		method = "GET"
 	}
+	if method == "GET" && !request.Reload && fetcher.Cache != nil {
+		if cached, ok := fetcher.Cache.Get(request); ok {
+			return cached, nil
+		}
+	}
 	header := http1.Header{}
 	for name, values := range request.Header {
 		for _, value := range values {
 			header = append(header, http1.Field{Name: name, Value: value})
+		}
+	}
+	partition := request.Partition
+	if partition == "" {
+		partition = "default"
+	}
+	now := time.Now()
+	if fetcher.Jar != nil {
+		cookieHeader := make([]string, 0)
+		path := target.Pathname()
+		if path == "" {
+			path = "/"
+		}
+		for _, cookie := range fetcher.Jar.CookiesFor(partition, target.Hostname(), path, target.Scheme == "https", now) {
+			cookieHeader = append(cookieHeader, cookie.Name+"="+cookie.Value)
+		}
+		if len(cookieHeader) > 0 {
+			header = append(header, http1.Field{Name: "Cookie", Value: strings.Join(cookieHeader, "; ")})
 		}
 	}
 	client := fetcher.Client
@@ -77,7 +106,22 @@ func (fetcher HTTPFetcher) Fetch(ctx context.Context, request Request) (Response
 	for _, field := range response.Header {
 		headerMap[field.Name] = append(headerMap[field.Name], field.Value)
 	}
-	return Response{Status: response.StatusCode, Header: headerMap, Body: body}, nil
+	if fetcher.Jar != nil {
+		path := target.Pathname()
+		if path == "" {
+			path = "/"
+		}
+		for _, value := range response.Header.Values("Set-Cookie") {
+			if cookie, ok := cookies.ParseSetCookie(target.Hostname(), path, value, now); ok {
+				fetcher.Jar.Set(partition, cookie)
+			}
+		}
+	}
+	result := Response{Status: response.StatusCode, Header: headerMap, Body: body}
+	if fetcher.Cache != nil {
+		fetcher.Cache.Put(request, result)
+	}
+	return result, nil
 }
 
 // Server serves fetch requests over one IPC connection.

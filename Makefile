@@ -6,7 +6,7 @@
 GO ?= go
 FUZZTIME ?= 10s
 BENCHTIME ?= 100x
-FORMAT_DIRS := cmd urls parsers protocols caches storages internal dom styles layouts rendering windowing
+FORMAT_DIRS := cmd urls parsers protocols caches storages internal dom styles layouts rendering windowing browsers ipc runtime brokers shells
 
 .PHONY: all build vet fmt fmt-check deps-check test conformance compliance-tests fuzz bench corpus-refresh spec-refresh clean
 

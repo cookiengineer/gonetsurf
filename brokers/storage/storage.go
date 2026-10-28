@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,16 +32,57 @@ type Response struct {
 	Value []byte `json:"value,omitempty"`
 }
 
-// Store is an in-memory partitioned key-value store. A persistent backend can
-// replace it behind the same broker interface.
+// Store is a partitioned key-value store.
 type Store struct {
 	mutex  sync.RWMutex
 	values map[string][]byte
+	path   string
 }
 
-// NewStore returns an empty store.
+// NewStore returns an empty in-memory store.
 func NewStore() *Store {
 	return &Store{values: make(map[string][]byte)}
+}
+
+// NewFileStore loads a JSON-backed persistent store, creating it if needed.
+func NewFileStore(path string) (*Store, error) {
+	store := &Store{values: make(map[string][]byte), path: path}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return store, nil
+		}
+		return nil, err
+	}
+	if len(data) == 0 {
+		return store, nil
+	}
+	encoded := make(map[string][]byte)
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return nil, err
+	}
+	for key, value := range encoded {
+		store.values[key] = value
+	}
+	return store, nil
+}
+
+func (store *Store) persistLocked() error {
+	if store.path == "" {
+		return nil
+	}
+	data, err := json.Marshal(store.values)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(store.path), 0o700); err != nil {
+		return err
+	}
+	temporary := store.path + ".tmp"
+	if err := os.WriteFile(temporary, data, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(temporary, store.path)
 }
 
 func storageKey(partition, origin, key string) string {
@@ -65,14 +108,15 @@ func (store *Store) Set(partition, origin, key string, value []byte) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	store.values[storageKey(partition, origin, key)] = append([]byte(nil), value...)
-	return nil
+	return store.persistLocked()
 }
 
 // Delete removes a value.
-func (store *Store) Delete(partition, origin, key string) {
+func (store *Store) Delete(partition, origin, key string) error {
 	store.mutex.Lock()
 	defer store.mutex.Unlock()
 	delete(store.values, storageKey(partition, origin, key))
+	return store.persistLocked()
 }
 
 // Server serves storage requests over one IPC connection.
@@ -127,7 +171,10 @@ func (server *Server) Serve(ctx context.Context) error {
 			}
 			response = Response{Found: true}
 		case "delete":
-			store.Delete(request.Partition, request.Origin, request.Key)
+			if err := store.Delete(request.Partition, request.Origin, request.Key); err != nil {
+				server.sendError(message.RequestID, err.Error())
+				continue
+			}
 			response = Response{Found: true}
 		default:
 			server.sendError(message.RequestID, "unknown action")

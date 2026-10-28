@@ -138,13 +138,25 @@ type landlockPathBeneathAttr struct {
 
 // ApplyLandlock installs and enforces a filesystem ruleset.
 func ApplyLandlock(config LandlockConfig) error {
+	version, _, errno := unix.Syscall(unix.SYS_LANDLOCK_CREATE_RULESET, 0, 0, 1)
+	if errno != 0 || version < 1 {
+		return fmt.Errorf("sandbox: Landlock is unavailable")
+	}
+	supported := LandlockExecute | LandlockWriteFile | LandlockReadFile | LandlockReadDir |
+		LandlockRemoveDir | LandlockRemoveFile | LandlockMakeChar | LandlockMakeDir |
+		LandlockMakeReg | LandlockMakeSock | LandlockMakeFIFO | LandlockMakeBlock |
+		LandlockMakeSym
+	if version >= 2 {
+		supported |= LandlockRefer
+	}
+	if version >= 3 {
+		supported |= LandlockTruncate
+	}
 	handled := config.HandledAccess
 	if handled == 0 {
-		handled = LandlockExecute | LandlockWriteFile | LandlockReadFile | LandlockReadDir |
-			LandlockRemoveDir | LandlockRemoveFile | LandlockMakeChar | LandlockMakeDir |
-			LandlockMakeReg | LandlockMakeSock | LandlockMakeFIFO | LandlockMakeBlock |
-			LandlockMakeSym | LandlockRefer | LandlockTruncate
+		handled = supported
 	}
+	handled &= supported
 	attr := landlockRulesetAttr{HandledAccessFS: handled}
 	rulesetFD, _, errno := unix.Syscall(unix.SYS_LANDLOCK_CREATE_RULESET, uintptr(unsafe.Pointer(&attr)), unsafe.Sizeof(attr), 0)
 	if errno != 0 {
@@ -152,11 +164,19 @@ func ApplyLandlock(config LandlockConfig) error {
 	}
 	defer unix.Close(int(rulesetFD))
 	for _, rule := range config.Rules {
+		info, statErr := os.Stat(rule.Path)
+		if statErr != nil {
+			return fmt.Errorf("sandbox: stat %s: %w", rule.Path, statErr)
+		}
+		allowedAccess := rule.Access & handled
+		if !info.IsDir() {
+			allowedAccess &= LandlockExecute | LandlockWriteFile | LandlockReadFile | LandlockTruncate
+		}
 		pathFD, err := unix.Open(rule.Path, unix.O_PATH|unix.O_CLOEXEC, 0)
 		if err != nil {
 			return fmt.Errorf("sandbox: open %s: %w", rule.Path, err)
 		}
-		ruleAttr := landlockPathBeneathAttr{AllowedAccess: rule.Access & handled, ParentFD: int32(pathFD)}
+		ruleAttr := landlockPathBeneathAttr{AllowedAccess: allowedAccess, ParentFD: int32(pathFD)}
 		_, _, errno := unix.Syscall6(unix.SYS_LANDLOCK_ADD_RULE, rulesetFD, 1, uintptr(unsafe.Pointer(&ruleAttr)), 0, 0, 0)
 		unix.Close(pathFD)
 		if errno != 0 {
@@ -277,6 +297,40 @@ func InstallSeccomp(config SeccompConfig) error {
 			K:    uint32(program[offset+4]) | uint32(program[offset+5])<<8 | uint32(program[offset+6])<<16 | uint32(program[offset+7])<<24,
 		}
 	}
+	return installInstructions(instructions)
+}
+
+// InstallNetworkSocketGuard blocks AF_INET/AF_INET6 sockets while leaving
+// AF_UNIX sockets available for X11 and broker IPC.
+func InstallNetworkSocketGuard() error {
+	architecture := uint32(0)
+	switch currentArchitecture() {
+	case "amd64":
+		architecture = archX86_64
+	case "arm64":
+		architecture = archAArch64
+	default:
+		return fmt.Errorf("sandbox: unsupported architecture")
+	}
+	instructions := []bpfInstruction{
+		{Code: bpfLoadWordAbsolute, K: 4},
+		{Code: bpfJumpEqual, K: architecture, JT: 1, JF: 0},
+		{Code: bpfReturn, K: seccompKill},
+		{Code: bpfLoadWordAbsolute, K: 0},
+		{Code: bpfJumpEqual, K: uint32(unix.SYS_SOCKET), JT: 1, JF: 0},
+		{Code: bpfReturn, K: seccompAllow},
+		{Code: bpfLoadWordAbsolute, K: 16},
+		{Code: bpfJumpEqual, K: uint32(unix.AF_UNIX), JT: 0, JF: 1},
+		{Code: bpfReturn, K: seccompAllow},
+		{Code: bpfReturn, K: seccompErrno | uint32(syscall.EPERM)},
+	}
+	return installInstructions(instructions)
+}
+
+func installInstructions(instructions []bpfInstruction) error {
+	if len(instructions) == 0 || len(instructions) > 4096 {
+		return fmt.Errorf("sandbox: invalid seccomp program")
+	}
 	filter := sockFilter{Length: uint16(len(instructions)), Filter: &instructions[0]}
 	if err := NoNewPrivileges(); err != nil {
 		return err
@@ -289,4 +343,79 @@ func InstallSeccomp(config SeccompConfig) error {
 
 func currentArchitecture() string {
 	return architectureName
+}
+
+// ApplyUnprivilegedBaseline applies the isolation available to an unprivileged
+// renderer: rlimits, no-new-privileges, capability dropping, and a read-only
+// Landlock filesystem view of the runtime, configuration, and font paths.
+func ApplyUnprivilegedBaseline() error {
+	rules := make([]LandlockRule, 0)
+	for _, path := range []string{
+		"/usr", "/usr/local", "/etc", "/lib", "/lib64", "/bin", "/sbin",
+		"/proc", "/sys", "/dev", "/tmp",
+	} {
+		if _, err := os.Stat(path); err == nil {
+			rules = append(rules, LandlockRule{Path: path, Access: LandlockReadFile | LandlockReadDir})
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		for _, path := range []string{
+			filepath.Join(home, ".Xauthority"),
+			filepath.Join(home, ".fonts"),
+			filepath.Join(home, ".local", "share", "fonts"),
+		} {
+			if _, err := os.Stat(path); err == nil {
+				rules = append(rules, LandlockRule{Path: path, Access: LandlockReadFile | LandlockReadDir})
+			}
+		}
+	}
+	return Apply(Config{
+		NoNewPrivileges:  true,
+		DropCapabilities: true,
+		Rlimits: []Rlimit{
+			{Resource: unix.RLIMIT_CORE, Current: 0, Maximum: 0},
+			{Resource: unix.RLIMIT_NOFILE, Current: 1024, Maximum: 1024},
+			{Resource: unix.RLIMIT_NPROC, Current: 4096, Maximum: 4096},
+		},
+		Landlock: &LandlockConfig{Rules: rules},
+	})
+}
+
+// NamespaceConfig selects namespaces for a newly spawned process.
+type NamespaceConfig struct {
+	User    bool
+	Network bool
+	Mount   bool
+	PID     bool
+}
+
+// ProcAttr returns SysProcAttr that creates the selected namespaces for a new
+// child process. Go programs are multithreaded, so user namespaces must be
+// created by the child's clone/fork rather than by unshare(2) after startup.
+func ProcAttr(config NamespaceConfig) *syscall.SysProcAttr {
+	attributes := &syscall.SysProcAttr{}
+	if config.User {
+		attributes.Cloneflags |= unix.CLONE_NEWUSER
+		attributes.UidMappings = []syscall.SysProcIDMap{{
+			ContainerID: 0,
+			HostID:      os.Geteuid(),
+			Size:        1,
+		}}
+		attributes.GidMappings = []syscall.SysProcIDMap{{
+			ContainerID: 0,
+			HostID:      os.Getegid(),
+			Size:        1,
+		}}
+		attributes.GidMappingsEnableSetgroups = false
+	}
+	if config.Network {
+		attributes.Cloneflags |= unix.CLONE_NEWNET
+	}
+	if config.Mount {
+		attributes.Cloneflags |= unix.CLONE_NEWNS
+	}
+	if config.PID {
+		attributes.Cloneflags |= unix.CLONE_NEWPID
+	}
+	return attributes
 }
