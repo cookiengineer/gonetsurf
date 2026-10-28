@@ -13,8 +13,9 @@ work.
 > have unit and Go-native conformance tests. Phase 5 (style resolution) is complete with
 > all 6 tasks `Verified`: indexed selector matching, UA stylesheet, presentational hints,
 > cascade/inheritance, custom properties, computed values, conditionals, and incremental
-> restyle. Phase 6 (layout) is next. See [`handover.md`](./handover.md) for the status and
-> gaps.
+> restyle. Phase 6 (layout) is in progress: box-tree construction, the box model, block
+> layout with margin collapsing, and simple inline line layout are implemented. See
+> [`handover.md`](./handover.md) for the status and gaps.
 
 ## How to read a task
 

@@ -27,10 +27,11 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 3 | HTML parsing (`x/net/html`) + `dom` | **Done** (6/6 Verified) |
 | 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Done** (14/14 Verified) |
 | 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
-| 6–10 | Layout, paint, window/UI, process sandbox, JS/Web APIs | **Not started** |
+| 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **In progress** (1 Verified, 3 Implemented/Partial, 10 Planned) |
+| 7–10 | Paint/window/UI/process sandbox/JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **56 Verified, 4 Implemented/Partial, 54 Planned, 0 Blocked**. There are no open
+Totals: **57 Verified, 7 Implemented/Partial, 50 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is **no browser executable yet**. Phase 0–3 deliverables are the engine's
@@ -41,7 +42,7 @@ foundational libraries; the first runnable windowed browser is expected after Ph
 ```sh
 go build ./...                          # compile everything
 go vet ./...                            # static checks
-gofmt -l cmd urls parsers protocols caches storages internal dom styles   # formatting
+gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts   # formatting
 go test ./... -count=1                  # unit + integration tests
 go run ./cmd/netsurfctl deps-check      # enforce the no-third-party policy
 go run ./cmd/netsurfctl urlparse 'https://www.example.com:8443/a/b?x=1#f'
@@ -52,7 +53,7 @@ go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
 
 Current verification baseline:
 
-- 167 Go files across 36 packages, 64 test files, 280 test/fuzz/benchmark functions.
+- 172 Go files across 37 packages, 65 test files, 284 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -98,6 +99,10 @@ Current verification baseline:
   widths, and generic length/angle/time conversion are tested.
 - Incremental restyle: DOM mutation versions and dirty-node tracking drive cached
   subtree restyles; `:has()` stylesheets fall back to a full restyle.
+- Layout: box-tree construction, anonymous block boxes, `display:contents`, box
+  model/sizing, block layout with sibling margin collapsing, and simple inline
+  line layout with word wrapping are tested. Shorthand expansion covers margin,
+  padding, border, border components, and overflow.
 - Matching benchmarks: `dom` selector matching and `styles.Matcher.Elements` are
   benchmarked; the DOM matcher also has a fuzz target.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
@@ -139,6 +144,7 @@ Current verification baseline:
 | `parsers/css/nesting/` | CSS Nesting parsing and `&` resolution. |
 | `dom/` | Namespace-aware mutable DOM: nodes, documents, attributes, queries, templates, shadow scaffolding, sandbox flags. |
 | `styles/` | Indexed selector matcher, UA stylesheet, presentational hints, and the style-resolution engine. |
+| `layouts/` | Box-tree construction, box model, block layout, and simple inline line layout. |
 | `protocols/http1/` | Custom HTTP/1.1 client: ordered headers, strict framing, chunked+trailers, pool, redirects, conditional/range. |
 | `protocols/tls/` | TLS 1.3 client config, ALPN, ECH field, GREASE values. |
 | `protocols/dns/` | DNS codec (compression), caching resolver, special-use names, DoH, DoT. |
@@ -155,8 +161,8 @@ Current verification baseline:
 | `cmd/corpusgen/` | Refresh and normalize the vendored WPT, URL, HTML, and CSS corpora. |
 | `cmd/propertygen/` | Generate the property registry from pinned specs and WPT grammar assertions. |
 
-The target layout (including not-yet-created packages such as `layouts/`, `rendering/`,
-`windowing/`, `webapis/`, `runtime/`, `brokers/`, `engines/`, `ipc/`, `farbling/`, and
+The target layout (including not-yet-created packages such as `rendering/`, `windowing/`,
+`webapis/`, `runtime/`, `brokers/`, `engines/`, `ipc/`, `farbling/`, and
 `javascripts/sobek/`) is described in
 [`architecture.md`](./architecture.md). Those are design targets; only the packages in the
 table above exist today.
@@ -175,6 +181,10 @@ These are intentional, tracked gaps rather than surprises:
   line-height, opacity, border widths, and generic length/angle/time conversion are
   implemented. Layout-specific used values (percentage resolution against containing
   blocks, intrinsic sizing, text metrics) belong to Phase 6.
+- **Layout is at its foundation stage.** P6-LAYOUT-002/003/004 cover the box model,
+  sibling margin collapsing, and simple line wrapping. Intrinsic sizing, table/flex/grid,
+  positioning, floats, writing modes, bidi, text shaping, and overflow/scroll containers
+  remain planned Phase 6 tasks.
 - **Incremental restyle is conservative.** Dirty nodes restyle their parent subtree;
   stylesheets using `:has()` trigger a full restyle because descendant changes can
   invalidate ancestors. Selector indexes are rebuilt on restyle.
@@ -241,9 +251,9 @@ Recorded in the relevant design docs under "Decisions":
 
 ## 8. Recommended next steps
 
-1. **Phase 6 — Layout.** Build the box tree, block/inline/table/flex/grid formatting
-   contexts, positioning, overflow, writing modes, bidi, and text metrics using the
-   computed styles and `styles.Matcher`.
+1. **Continue Phase 6 — Layout.** Add intrinsic sizing and parent/child margin
+   collapsing, then table/flex/grid formatting contexts, floats, positioning,
+   writing modes, bidi, text metrics, overflow/scroll, and incremental layout.
 2. **Deepen CSS feature coverage** as Phase 6/7 need it: full CSSOM IDL surface, media
    query serialization and remaining features, and cascade edge cases.
 3. **Close the remaining Partial network task** (TLS GREASE/ECH) when the

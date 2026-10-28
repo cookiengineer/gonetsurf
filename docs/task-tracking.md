@@ -34,13 +34,13 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 3 HTML/DOM | 6 | 6 | 0 | 0 | 0 |
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
-| 6 Layout | 14 | 0 | 0 | 14 | 0 |
+| 6 Layout | 14 | 1 | 3 | 10 | 0 |
 | 7 Paint/Fonts/Images/Color | 10 | 0 | 0 | 10 | 0 |
 | 8 Window/UI | 6 | 0 | 0 | 6 | 0 |
 | 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **114** | **56** | **4** | **54** | **0** |
+| **Total** | **114** | **57** | **7** | **50** | **0** |
 
 ## Progress log
 
@@ -218,6 +218,15 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   stylesheets using `:has()` fall back to a full restyle. P5-STYLE-003 and
   P5-STYLE-006 are now `Verified`. Phase 5 is complete.
 
+- **2026-10-28 (Phase 6 start):** Added `layouts` with box-tree construction
+  (block/inline/text/anonymous boxes, `display:none`, `display:contents`),
+  box-model resolution (margins, padding, borders, content/border-box sizing,
+  percentages), block layout with sibling margin collapsing, and simple inline
+  line layout with word wrapping and default advance-width measurement. Added
+  shorthand expansion in `styles` for margin, padding, border, border
+  components, and overflow so layout consumes real edge values. P6-LAYOUT-001 is
+  `Verified`; P6-LAYOUT-002/003/004 are `Implemented`/`Partial`.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -312,10 +321,10 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
 |---|---|---|---|---|---|---|
-| P6-LAYOUT-001 | Box tree construction | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-002 | Box model and intrinsic sizing | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-003 | Block formatting context | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-004 | Inline formatting context | Planned | - | - | Unassessed | - |
+| P6-LAYOUT-001 | Box tree construction | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-002 | Box model and intrinsic sizing | Implemented | Y | P | Partial | - |
+| P6-LAYOUT-003 | Block formatting context | Implemented | Y | P | Partial | - |
+| P6-LAYOUT-004 | Inline formatting context | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-005 | Table formatting context | Planned | - | - | Unassessed | - |
 | P6-LAYOUT-006 | Floats | Planned | - | - | Unassessed | - |
 | P6-LAYOUT-007 | Positioning | Planned | - | - | Unassessed | - |
