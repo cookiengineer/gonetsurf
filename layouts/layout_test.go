@@ -211,3 +211,368 @@ func TestInlineLineLayout(t *testing.T) {
 		t.Errorf("word widths = %v, %v", p.Children[0].Width, p.Children[1].Width)
 	}
 }
+
+func TestIntrinsicWidths(t *testing.T) {
+	document, body := testDocument()
+	minElement := document.CreateElement("p")
+	minElement.SetAttribute("class", "min")
+	minElement.AppendChild(document.CreateTextNode("hello world"))
+	maxElement := document.CreateElement("p")
+	maxElement.SetAttribute("class", "max")
+	maxElement.AppendChild(document.CreateTextNode("hello world"))
+	clampElement := document.CreateElement("p")
+	clampElement.SetAttribute("class", "clamp")
+	clampElement.AppendChild(document.CreateTextNode("hello world"))
+	shrink := document.CreateElement("div")
+	shrink.SetAttribute("class", "shrink")
+	fitElement := document.CreateElement("p")
+	fitElement.SetAttribute("class", "fit")
+	fitElement.AppendChild(document.CreateTextNode("hello world"))
+	shrink.AppendChild(fitElement)
+	body.AppendChild(minElement)
+	body.AppendChild(maxElement)
+	body.AppendChild(clampElement)
+	body.AppendChild(shrink)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }
+		.min { width:min-content }
+		.max { width:max-content }
+		.clamp { width:max-content; max-width:min-content }
+		.shrink { display:block; width:60px }
+		.fit { width:fit-content }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	if got := findBox(root, minElement).ContentWidth; got != 40 {
+		t.Errorf("min-content width = %v, want 40", got)
+	}
+	if got := findBox(root, maxElement).ContentWidth; got != 84 {
+		t.Errorf("max-content width = %v, want 84", got)
+	}
+	if got := findBox(root, clampElement).ContentWidth; got != 40 {
+		t.Errorf("max-width min-content = %v, want 40", got)
+	}
+	if got := findBox(root, fitElement).ContentWidth; got != 60 {
+		t.Errorf("fit-content width = %v, want 60", got)
+	}
+}
+
+func TestParentChildMarginCollapse(t *testing.T) {
+	document, body := testDocument()
+	outer := document.CreateElement("div")
+	outer.SetAttribute("class", "outer")
+	inner := document.CreateElement("div")
+	inner.SetAttribute("class", "inner")
+	outer.AppendChild(inner)
+	body.AppendChild(outer)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.outer { display:block; margin:20px 0 0 0; padding:0; border:0 }
+		.inner { display:block; margin:30px 0 0 0; padding:0; border:0; height:10px }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	outerBox := findBox(root, outer)
+	innerBox := findBox(root, inner)
+	if outerBox.Y != 30 {
+		t.Errorf("collapsed outer y = %v, want 30", outerBox.Y)
+	}
+	if innerBox.Y != 30 {
+		t.Errorf("collapsed inner y = %v, want 30", innerBox.Y)
+	}
+	if outerBox.ContentHeight != 10 {
+		t.Errorf("outer content height = %v, want 10", outerBox.ContentHeight)
+	}
+}
+
+func TestPaddingPreventsMarginCollapse(t *testing.T) {
+	document, body := testDocument()
+	outer := document.CreateElement("div")
+	outer.SetAttribute("class", "outer")
+	inner := document.CreateElement("div")
+	inner.SetAttribute("class", "inner")
+	outer.AppendChild(inner)
+	body.AppendChild(outer)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.outer { display:block; margin-top:20px; padding-top:1px; padding-bottom:0; padding-left:0; padding-right:0; border:0 }
+		.inner { display:block; margin-top:30px; margin-bottom:0; margin-left:0; margin-right:0; height:10px; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	outerBox := findBox(root, outer)
+	innerBox := findBox(root, inner)
+	if outerBox.Y != 20 || innerBox.Y != 51 {
+		t.Errorf("padding case outer y=%v inner y=%v, want 20/51", outerBox.Y, innerBox.Y)
+	}
+}
+
+func TestOverflowPreventsMarginCollapse(t *testing.T) {
+	document, body := testDocument()
+	outer := document.CreateElement("div")
+	outer.SetAttribute("class", "outer")
+	inner := document.CreateElement("div")
+	inner.SetAttribute("class", "inner")
+	outer.AppendChild(inner)
+	body.AppendChild(outer)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.outer { display:block; margin-top:20px; overflow-x:hidden; overflow-y:hidden; padding:0; border:0 }
+		.inner { display:block; margin-top:30px; margin-bottom:0; margin-left:0; margin-right:0; height:10px; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	if got := findBox(root, inner).Y; got != 50 {
+		t.Errorf("BFC inner y = %v, want 50", got)
+	}
+}
+
+func TestParentChildBottomMarginCollapse(t *testing.T) {
+	document, body := testDocument()
+	outer := document.CreateElement("div")
+	outer.SetAttribute("class", "outer")
+	inner := document.CreateElement("div")
+	inner.SetAttribute("class", "inner")
+	outer.AppendChild(inner)
+	next := document.CreateElement("div")
+	next.SetAttribute("class", "next")
+	body.AppendChild(outer)
+	body.AppendChild(next)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.outer { display:block; margin:0; padding:0; border:0 }
+		.inner { display:block; margin:0 0 30px 0; height:10px; padding:0; border:0 }
+		.next { display:block; height:10px; margin:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	outerBox := findBox(root, outer)
+	innerBox := findBox(root, inner)
+	nextBox := findBox(root, next)
+	if outerBox.ContentHeight != 10 {
+		t.Errorf("outer content height = %v, want 10", outerBox.ContentHeight)
+	}
+	if innerBox.Y != 0 {
+		t.Errorf("inner y = %v, want 0", innerBox.Y)
+	}
+	if nextBox.Y != 40 {
+		t.Errorf("next y = %v, want 40", nextBox.Y)
+	}
+}
+
+func TestPositioning(t *testing.T) {
+	document, body := testDocument()
+	container := document.CreateElement("div")
+	container.SetAttribute("class", "container")
+	relative := document.CreateElement("div")
+	relative.SetAttribute("class", "rel")
+	child := document.CreateElement("div")
+	child.SetAttribute("class", "child")
+	relative.AppendChild(child)
+	absolute := document.CreateElement("div")
+	absolute.SetAttribute("class", "abs")
+	stretch := document.CreateElement("div")
+	stretch.SetAttribute("class", "stretch")
+	absoluteBottom := document.CreateElement("div")
+	absoluteBottom.SetAttribute("class", "abs-bottom")
+	fixed := document.CreateElement("div")
+	fixed.SetAttribute("class", "fixed")
+	container.AppendChild(relative)
+	container.AppendChild(absolute)
+	container.AppendChild(stretch)
+	container.AppendChild(absoluteBottom)
+	body.AppendChild(container)
+	body.AppendChild(fixed)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		div { margin:0; padding:0; border:0 }
+		.container { position:relative; display:block; width:200px; height:100px }
+		.rel { position:relative; left:10px; top:5px; height:10px }
+		.child { height:5px }
+		.abs { position:absolute; left:20px; top:10px; width:50px; height:20px }
+		.stretch { position:absolute; left:10px; right:10px; top:0; height:10px }
+		.abs-bottom { position:absolute; left:0; bottom:10px; width:20px; height:30px }
+		.fixed { position:fixed; right:10px; bottom:10px; width:40px; height:20px; z-index:5 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	relBox := findBox(root, relative)
+	childBox := findBox(root, child)
+	if relBox.X != 10 || relBox.Y != 5 || childBox.X != 10 || childBox.Y != 5 {
+		t.Errorf("relative boxes = rel(%v,%v) child(%v,%v)", relBox.X, relBox.Y, childBox.X, childBox.Y)
+	}
+	absBox := findBox(root, absolute)
+	if absBox.X != 20 || absBox.Y != 10 || absBox.Width != 50 || absBox.Height != 20 {
+		t.Errorf("absolute box = (%v,%v) %vx%v", absBox.X, absBox.Y, absBox.Width, absBox.Height)
+	}
+	stretchBox := findBox(root, stretch)
+	if stretchBox.X != 10 || stretchBox.Width != 180 {
+		t.Errorf("stretch box x/width = %v/%v, want 10/180", stretchBox.X, stretchBox.Width)
+	}
+	bottomBox := findBox(root, absoluteBottom)
+	if bottomBox.Y != 60 {
+		t.Errorf("bottom box y = %v, want 60", bottomBox.Y)
+	}
+	fixedBox := findBox(root, fixed)
+	if fixedBox.X != 350 || fixedBox.Y != 570 {
+		t.Errorf("fixed box = (%v,%v), want (350,570)", fixedBox.X, fixedBox.Y)
+	}
+	if fixedBox.ZIndex != 5 {
+		t.Errorf("fixed z-index = %d, want 5", fixedBox.ZIndex)
+	}
+	if got := findBox(root, container).ContentHeight; got != 100 {
+		t.Errorf("container content height = %v, want 100", got)
+	}
+}
+
+func TestFlexboxRow(t *testing.T) {
+	document, body := testDocument()
+	flex := document.CreateElement("div")
+	flex.SetAttribute("class", "flex row")
+	items := []*dom.Node{}
+	for index := 0; index < 3; index++ {
+		item := document.CreateElement("div")
+		item.SetAttribute("class", "item")
+		flex.AppendChild(item)
+		items = append(items, item)
+	}
+	body.AppendChild(flex)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.flex { display:flex; width:300px; height:40px; margin:0; padding:0; border:0; align-items:flex-start }
+		.row { justify-content:space-between }
+		.item { width:50px; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	wantX := []float64{0, 125, 250}
+	for index, item := range items {
+		box := findBox(root, item)
+		if box.X != wantX[index] || box.Y != 0 {
+			t.Errorf("row item %d = (%v,%v), want (%v,0)", index, box.X, box.Y, wantX[index])
+		}
+		if box.Width != 50 {
+			t.Errorf("row item %d width = %v, want 50", index, box.Width)
+		}
+	}
+}
+
+func TestFlexboxGrow(t *testing.T) {
+	document, body := testDocument()
+	flex := document.CreateElement("div")
+	flex.SetAttribute("class", "flex")
+	first := document.CreateElement("div")
+	first.SetAttribute("class", "grow1")
+	second := document.CreateElement("div")
+	second.SetAttribute("class", "grow2")
+	flex.AppendChild(first)
+	flex.AppendChild(second)
+	body.AppendChild(flex)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.flex { display:flex; width:300px; height:20px; margin:0; padding:0; border:0; align-items:flex-start }
+		.grow1 { flex-grow:1; flex-basis:0%; height:10px; margin:0; padding:0; border:0 }
+		.grow2 { flex-grow:2; flex-basis:0%; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	firstBox := findBox(root, first)
+	secondBox := findBox(root, second)
+	if firstBox.Width != 100 || firstBox.X != 0 {
+		t.Errorf("grow1 = x:%v w:%v, want 0/100", firstBox.X, firstBox.Width)
+	}
+	if secondBox.Width != 200 || secondBox.X != 100 {
+		t.Errorf("grow2 = x:%v w:%v, want 100/200", secondBox.X, secondBox.Width)
+	}
+}
+
+func TestFlexboxColumn(t *testing.T) {
+	document, body := testDocument()
+	flex := document.CreateElement("div")
+	flex.SetAttribute("class", "flex")
+	first := document.CreateElement("div")
+	first.SetAttribute("class", "item1")
+	second := document.CreateElement("div")
+	second.SetAttribute("class", "item2")
+	flex.AppendChild(first)
+	flex.AppendChild(second)
+	body.AppendChild(flex)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.flex { display:flex; flex-direction:column; width:100px; height:100px; margin:0; padding:0; border:0; align-items:center }
+		.item1 { width:20px; height:10px; margin:0; padding:0; border:0 }
+		.item2 { width:40px; height:20px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	firstBox := findBox(root, first)
+	secondBox := findBox(root, second)
+	if firstBox.X != 40 || firstBox.Y != 0 {
+		t.Errorf("column item1 = (%v,%v), want (40,0)", firstBox.X, firstBox.Y)
+	}
+	if secondBox.X != 30 || secondBox.Y != 10 {
+		t.Errorf("column item2 = (%v,%v), want (30,10)", secondBox.X, secondBox.Y)
+	}
+}
+
+func TestFlexboxGapAndOrder(t *testing.T) {
+	document, body := testDocument()
+	flex := document.CreateElement("div")
+	flex.SetAttribute("class", "flex")
+	first := document.CreateElement("div")
+	first.SetAttribute("class", "item order2")
+	second := document.CreateElement("div")
+	second.SetAttribute("class", "item order1")
+	third := document.CreateElement("div")
+	third.SetAttribute("class", "item")
+	flex.AppendChild(first)
+	flex.AppendChild(second)
+	flex.AppendChild(third)
+	body.AppendChild(flex)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.flex { display:flex; width:300px; height:20px; gap:10px; margin:0; padding:0; border:0; align-items:flex-start; justify-content:flex-start }
+		.item { width:50px; height:10px; margin:0; padding:0; border:0 }
+		.order1 { order:1 }
+		.order2 { order:2 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	// The un-ordered third item comes first, then order1, then order2.
+	if got := findBox(root, third).X; got != 0 {
+		t.Errorf("third x = %v, want 0", got)
+	}
+	if got := findBox(root, second).X; got != 60 {
+		t.Errorf("second x = %v, want 60", got)
+	}
+	if got := findBox(root, first).X; got != 120 {
+		t.Errorf("first x = %v, want 120", got)
+	}
+}

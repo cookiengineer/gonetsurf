@@ -5,6 +5,7 @@ import (
 
 	"gonetsurf/dom"
 	"gonetsurf/parsers/css/parser"
+	"gonetsurf/parsers/css/tokenizer"
 	cssvalues "gonetsurf/parsers/css/values"
 	"gonetsurf/styles"
 )
@@ -85,6 +86,11 @@ type Box struct {
 
 	FontSize   float64
 	LineHeight float64
+	ZIndex     int
+
+	IntrinsicMinWidth  float64
+	IntrinsicMaxWidth  float64
+	intrinsicsComputed bool
 }
 
 // IsBlockLevel reports whether the box participates in block layout.
@@ -193,6 +199,7 @@ func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, inherited *
 		Children: children,
 	}
 	box.FontSize, box.LineHeight = fontMetrics(style)
+	box.ZIndex = parseZIndex(style.GetString("z-index"))
 	for _, child := range children {
 		child.Parent = box
 	}
@@ -297,6 +304,18 @@ func parseLength(text string) Length {
 		return Length{Value: numeric.Number}
 	}
 	return Length{}
+}
+
+func parseZIndex(text string) int {
+	values := parser.ParseComponentValueList(strings.TrimSpace(text))
+	if len(values) != 1 {
+		return 0
+	}
+	token, ok := parser.AsToken(values[0])
+	if !ok || token.Type != tokenizer.TokenNumber || token.NumericKind != tokenizer.Integer {
+		return 0
+	}
+	return int(token.Number)
 }
 
 func fontMetrics(style *styles.Style) (float64, float64) {
