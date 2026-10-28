@@ -266,13 +266,18 @@ func collectInlineBoxes(box *Box, result *[]*Box) {
 		return
 	}
 	if box.Kind == TextBox {
-		words := strings.Fields(box.Text)
+		direction := ""
+		if box.Style != nil {
+			direction = box.Style.GetString("direction")
+		}
+		words := visualWords(box.Text, direction)
 		for _, word := range words {
 			*result = append(*result, &Box{
 				Node:       box.Node,
 				Style:      box.Style,
 				Kind:       TextBox,
-				Text:       word,
+				Text:       word.Text,
+				VisualText: word.Visual,
 				FontSize:   box.FontSize,
 				LineHeight: box.LineHeight,
 				Parent:     box.Parent,

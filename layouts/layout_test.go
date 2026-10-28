@@ -899,3 +899,166 @@ func TestDocumentLayoutCache(t *testing.T) {
 		t.Error("invalidated viewport should rebuild the box tree")
 	}
 }
+
+func TestFlexWrapAndBaseline(t *testing.T) {
+	document, body := testDocument()
+	flex := document.CreateElement("div")
+	flex.SetAttribute("class", "wrap")
+	items := []*dom.Node{}
+	for index := 0; index < 3; index++ {
+		item := document.CreateElement("div")
+		item.SetAttribute("class", "item")
+		flex.AppendChild(item)
+		items = append(items, item)
+	}
+	body.AppendChild(flex)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.wrap { display:flex; flex-wrap:wrap; width:120px; column-gap:10px; row-gap:0; align-items:flex-start }
+		.item { width:50px; height:20px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	if findBox(root, items[0]).X != 0 || findBox(root, items[1]).X != 60 {
+		t.Errorf("first line x = %v/%v", findBox(root, items[0]).X, findBox(root, items[1]).X)
+	}
+	if findBox(root, items[2]).X != 0 || findBox(root, items[2]).Y != 20 {
+		t.Errorf("wrapped item = (%v,%v), want (0,20)", findBox(root, items[2]).X, findBox(root, items[2]).Y)
+	}
+
+	document, body = testDocument()
+	baseline := document.CreateElement("div")
+	baseline.SetAttribute("class", "baseline")
+	small := document.CreateElement("span")
+	small.SetAttribute("class", "small")
+	small.AppendChild(document.CreateTextNode("x"))
+	large := document.CreateElement("span")
+	large.SetAttribute("class", "large")
+	large.AppendChild(document.CreateTextNode("x"))
+	baseline.AppendChild(small)
+	baseline.AppendChild(large)
+	body.AppendChild(baseline)
+	engine = testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.baseline { display:flex; width:200px; align-items:baseline }
+		.small { width:50px; margin:0; padding:0; border:0; font-size:16px }
+		.large { width:50px; margin:0; padding:0; border:0; font-size:24px }
+	`)
+	root = BuildDocument(document, engine)
+	layout = New(400, 600)
+	layout.Layout(root)
+	if got := findBox(root, small).Y; math.Abs(got-6.4) > 1e-9 {
+		t.Errorf("small baseline y = %v, want 6.4", got)
+	}
+	if got := findBox(root, large).Y; got != 0 {
+		t.Errorf("large baseline y = %v, want 0", got)
+	}
+}
+
+func TestScrollContainer(t *testing.T) {
+	document, body := testDocument()
+	parent := document.CreateElement("div")
+	parent.SetAttribute("class", "scroller")
+	child := document.CreateElement("div")
+	child.SetAttribute("class", "child")
+	parent.AppendChild(child)
+	body.AppendChild(parent)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.scroller { display:block; width:50px; height:20px; overflow:auto; margin:0; padding:0; border:0 }
+		.child { display:block; width:100px; height:40px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	scroller := findBox(root, parent)
+	if !scroller.ClipX || !scroller.ClipY {
+		t.Error("overflow:auto should clip both axes")
+	}
+	if scroller.ScrollWidth != 100 || scroller.ScrollHeight != 40 {
+		t.Errorf("scroll size = %vx%v, want 100x40", scroller.ScrollWidth, scroller.ScrollHeight)
+	}
+	if scroller.MaxScrollLeft() != 50 || scroller.MaxScrollTop() != 20 {
+		t.Errorf("max scroll = %v/%v, want 50/20", scroller.MaxScrollLeft(), scroller.MaxScrollTop())
+	}
+	scroller.ScrollTo(100, 100)
+	if scroller.ScrollLeft != 50 || scroller.ScrollTop != 20 {
+		t.Errorf("clamped scroll = %v/%v, want 50/20", scroller.ScrollLeft, scroller.ScrollTop)
+	}
+	scroller.ScrollBy(-10, -5)
+	if scroller.ScrollLeft != 40 || scroller.ScrollTop != 15 {
+		t.Errorf("relative scroll = %v/%v, want 40/15", scroller.ScrollLeft, scroller.ScrollTop)
+	}
+
+	document, body = testDocument()
+	visible := document.CreateElement("div")
+	visible.SetAttribute("class", "visible")
+	visible.AppendChild(document.CreateTextNode("x"))
+	body.AppendChild(visible)
+	engine = testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.visible { display:block; width:50px; height:20px; overflow:visible; margin:0; padding:0; border:0 }
+	`)
+	root = BuildDocument(document, engine)
+	layout = New(400, 600)
+	layout.Layout(root)
+	if findBox(root, visible).ClipX || findBox(root, visible).ClipY {
+		t.Error("overflow:visible should not clip")
+	}
+}
+
+func TestInlineBidiOrdering(t *testing.T) {
+	document, body := testDocument()
+	ltr := document.CreateElement("p")
+	ltr.SetAttribute("class", "ltr")
+	ltr.AppendChild(document.CreateTextNode("hello world"))
+	rtl := document.CreateElement("p")
+	rtl.SetAttribute("class", "rtl")
+	rtl.AppendChild(document.CreateTextNode("שלום עולם"))
+	body.AppendChild(ltr)
+	body.AppendChild(rtl)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; width:400px; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }
+		.ltr { direction:ltr }
+		.rtl { direction:rtl }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(800, 600)
+	layout.Layout(root)
+	ltrBox := findBox(root, ltr)
+	if len(ltrBox.Children) != 2 || ltrBox.Children[0].Text != "hello" || ltrBox.Children[1].Text != "world" {
+		t.Errorf("ltr words = %#v", ltrBox.Children)
+	}
+	if ltrBox.Children[0].VisualText != "hello" {
+		t.Errorf("ltr visual text = %q", ltrBox.Children[0].VisualText)
+	}
+	rtlBox := findBox(root, rtl)
+	if len(rtlBox.Children) != 2 || rtlBox.Children[0].Text != "עולם" || rtlBox.Children[1].Text != "שלום" {
+		t.Errorf("rtl words = %#v", rtlBox.Children)
+	}
+	if rtlBox.Children[0].VisualText != "םלוע" || rtlBox.Children[1].VisualText != "םולש" {
+		t.Errorf("rtl visual text = %q/%q", rtlBox.Children[0].VisualText, rtlBox.Children[1].VisualText)
+	}
+}
+
+func TestFontMetrics(t *testing.T) {
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; font-family: monospace; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }
+	`)
+	styleMap := engine.ComputeDocumentTree(document)
+	metrics := MetricsForStyle(styleMap[paragraph])
+	if metrics.Ascent != 12.8 || metrics.Descent != 3.2 || metrics.AverageAdvance != 9.6 {
+		t.Errorf("metrics = %#v", metrics)
+	}
+	layout := New(400, 600)
+	width, _ := layout.measureText("ab", styleMap[paragraph])
+	if math.Abs(width-19.2) > 1e-9 {
+		t.Errorf("monospace width = %v, want 19.2", width)
+	}
+}

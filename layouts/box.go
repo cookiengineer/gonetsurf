@@ -1,6 +1,7 @@
 package layouts
 
 import (
+	"math"
 	"strings"
 
 	"gonetsurf/dom"
@@ -63,11 +64,12 @@ func (edges Edges) Vertical(base float64) float64 {
 
 // Box is a node in the CSS box tree.
 type Box struct {
-	Node   *dom.Node
-	Style  *styles.Style
-	Kind   BoxKind
-	Text   string
-	Parent *Box
+	Node       *dom.Node
+	Style      *styles.Style
+	Kind       BoxKind
+	Text       string
+	VisualText string
+	Parent     *Box
 
 	Children []*Box
 
@@ -86,12 +88,17 @@ type Box struct {
 
 	FontSize   float64
 	LineHeight float64
+	Ascent     float64
 	ZIndex     int
 
 	IntrinsicMinWidth  float64
 	IntrinsicMaxWidth  float64
 	ScrollWidth        float64
 	ScrollHeight       float64
+	ScrollLeft         float64
+	ScrollTop          float64
+	ClipX              bool
+	ClipY              bool
 	intrinsicsComputed bool
 }
 
@@ -201,7 +208,10 @@ func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, inherited *
 		Children: children,
 	}
 	box.FontSize, box.LineHeight = fontMetrics(style)
+	box.Ascent = MetricsForStyle(style).Ascent
 	box.ZIndex = parseZIndex(style.GetString("z-index"))
+	box.ClipX = clipsOverflow(style.GetString("overflow-x"))
+	box.ClipY = clipsOverflow(style.GetString("overflow-y"))
 	for _, child := range children {
 		child.Parent = box
 	}
@@ -308,6 +318,15 @@ func parseLength(text string) Length {
 	return Length{}
 }
 
+func clipsOverflow(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "hidden", "clip", "scroll", "auto":
+		return true
+	default:
+		return false
+	}
+}
+
 func parseZIndex(text string) int {
 	values := parser.ParseComponentValueList(strings.TrimSpace(text))
 	if len(values) != 1 {
@@ -345,4 +364,25 @@ func fontMetrics(style *styles.Style) (float64, float64) {
 		}
 	}
 	return fontSize, lineHeight
+}
+
+// MaxScrollLeft returns the maximum horizontal scroll offset.
+func (box *Box) MaxScrollLeft() float64 {
+	return math.Max(0, box.ScrollWidth-box.ContentWidth)
+}
+
+// MaxScrollTop returns the maximum vertical scroll offset.
+func (box *Box) MaxScrollTop() float64 {
+	return math.Max(0, box.ScrollHeight-box.ContentHeight)
+}
+
+// ScrollTo sets the scroll offsets, clamped to the scrollable range.
+func (box *Box) ScrollTo(left, top float64) {
+	box.ScrollLeft = math.Max(0, math.Min(box.MaxScrollLeft(), left))
+	box.ScrollTop = math.Max(0, math.Min(box.MaxScrollTop(), top))
+}
+
+// ScrollBy adjusts the scroll offsets by the given deltas.
+func (box *Box) ScrollBy(deltaX, deltaY float64) {
+	box.ScrollTo(box.ScrollLeft+deltaX, box.ScrollTop+deltaY)
 }

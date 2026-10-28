@@ -66,16 +66,55 @@ func (layout *Layout) layoutFlex(box *Box) {
 	if !row {
 		mainSize = box.ContentHeight
 	}
-	totalBase := 0.0
 	for index := range items {
 		items[index].baseSize = layout.flexBaseSize(&items[index], row, mainSize)
-		totalBase += items[index].baseSize + items[index].margin
 	}
-	totalBase += mainGap * float64(len(items)-1)
 	if !row && mainSize <= 0 {
+		totalBase := 0.0
+		for _, item := range items {
+			totalBase += item.baseSize + item.margin
+		}
+		totalBase += mainGap * float64(len(items)-1)
 		mainSize = totalBase
 		box.ContentHeight = mainSize
 	}
+	wrap := strings.HasPrefix(strings.ToLower(strings.TrimSpace(box.Style.GetString("flex-wrap"))), "wrap")
+	if row && wrap {
+		lines := groupFlexLines(items, mainSize, mainGap)
+		lineY := box.ContentY
+		for _, line := range lines {
+			resolveFlexLineSizes(line, mainSize, mainGap)
+			used := mainGap * float64(len(line)-1)
+			for _, item := range line {
+				used += item.mainSize + item.margin
+			}
+			offset, spacing := justifyOffsets(strings.ToLower(strings.TrimSpace(box.Style.GetString("justify-content"))), mainSize-used, len(line))
+			lineHeight := layout.layoutFlexRowLine(box, line, offset, spacing, mainGap, lineY)
+			lineY += lineHeight
+		}
+		box.ContentHeight = lineY - box.ContentY
+		return
+	}
+	resolveFlexLineSizes(items, mainSize, mainGap)
+	used := mainGap * float64(len(items)-1)
+	for _, item := range items {
+		used += item.mainSize + item.margin
+	}
+	remaining := mainSize - used
+	offset, spacing := justifyOffsets(strings.ToLower(strings.TrimSpace(box.Style.GetString("justify-content"))), remaining, len(items))
+	if row {
+		box.ContentHeight = layout.layoutFlexRowLine(box, items, offset, spacing, mainGap, box.ContentY)
+	} else {
+		layout.layoutFlexColumn(box, items, offset, spacing, mainGap)
+	}
+}
+
+func resolveFlexLineSizes(items []flexItem, mainSize, gap float64) {
+	totalBase := 0.0
+	for _, item := range items {
+		totalBase += item.baseSize + item.margin
+	}
+	totalBase += gap * float64(len(items)-1)
 	free := mainSize - totalBase
 	totalGrow := 0.0
 	totalShrink := 0.0
@@ -94,20 +133,33 @@ func (layout *Layout) layoutFlex(box *Box) {
 			}
 		}
 	}
-	used := mainGap * float64(len(items)-1)
-	for _, item := range items {
-		used += item.mainSize + item.margin
-	}
-	remaining := mainSize - used
-	offset, spacing := justifyOffsets(strings.ToLower(strings.TrimSpace(box.Style.GetString("justify-content"))), remaining, len(items))
-	if row {
-		layout.layoutFlexRow(box, items, offset, spacing, mainGap)
-	} else {
-		layout.layoutFlexColumn(box, items, offset, spacing, mainGap)
-	}
 }
 
-func (layout *Layout) layoutFlexRow(box *Box, items []flexItem, offset, spacing, gap float64) {
+func groupFlexLines(items []flexItem, mainSize, gap float64) [][]flexItem {
+	lines := [][]flexItem{}
+	current := []flexItem{}
+	used := 0.0
+	for _, item := range items {
+		outer := item.baseSize + item.margin
+		if len(current) > 0 {
+			outer += gap
+		}
+		if len(current) > 0 && used+outer > mainSize {
+			lines = append(lines, current)
+			current = nil
+			used = 0
+			outer = item.baseSize + item.margin
+		}
+		current = append(current, item)
+		used += outer
+	}
+	if len(current) > 0 {
+		lines = append(lines, current)
+	}
+	return lines
+}
+
+func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spacing, gap, startY float64) float64 {
 	cursor := box.ContentX + offset
 	maxHeight := 0.0
 	for index := range items {
@@ -129,10 +181,11 @@ func (layout *Layout) layoutFlexRow(box *Box, items []flexItem, offset, spacing,
 		item.box.Width = item.box.ContentWidth + horizontalExtra
 		item.box.X = cursor + marginLeft
 		item.box.ContentX = item.box.X + borderLeft + paddingLeft
-		item.box.Y = box.ContentY + marginTop
+		item.box.Y = startY + marginTop
 		item.box.ContentY = item.box.Y + borderTop + paddingTop
 		layout.layoutFlexItemContent(item.box)
 		item.box.ContentHeight = layout.flexContentHeight(item.box)
+		item.box.ContentHeight = resolveHeight(item.box.Style, item.box.ContentHeight, 0, verticalExtra)
 		item.box.Height = item.box.ContentHeight + verticalExtra
 		outerHeight := item.box.Height + marginTop + marginBottom
 		if outerHeight > maxHeight {
@@ -154,9 +207,20 @@ func (layout *Layout) layoutFlexRow(box *Box, items []flexItem, offset, spacing,
 		marginBottom := item.box.Margin.Bottom.Resolve(box.ContentWidth)
 		switch alignSelf {
 		case "flex-end", "end":
-			item.box.Y = box.ContentY + maxHeight - marginBottom - item.box.Height
+			item.box.Y = startY + maxHeight - marginBottom - item.box.Height
 		case "center":
-			item.box.Y = box.ContentY + (maxHeight-item.box.Height-marginTop-marginBottom)/2 + marginTop
+			item.box.Y = startY + (maxHeight-item.box.Height-marginTop-marginBottom)/2 + marginTop
+		case "baseline":
+			maxAscent := 0.0
+			for _, other := range items {
+				if other.box.Ascent > maxAscent {
+					maxAscent = other.box.Ascent
+				}
+			}
+			if item.box.Ascent <= 0 {
+				item.box.Ascent = item.box.FontSize * 0.8
+			}
+			item.box.Y = startY + maxAscent - item.box.Ascent
 		case "stretch":
 			if parseSize(item.box.Style.GetString("height")).Auto {
 				item.box.Height = maxHeight - marginTop - marginBottom
@@ -164,7 +228,7 @@ func (layout *Layout) layoutFlexRow(box *Box, items []flexItem, offset, spacing,
 		}
 		item.box.ContentY = item.box.Y + item.box.Border.Top.Resolve(box.ContentWidth) + item.box.Padding.Top.Resolve(box.ContentWidth)
 	}
-	box.ContentHeight = maxHeight
+	return maxHeight
 }
 
 func (layout *Layout) layoutFlexColumn(box *Box, items []flexItem, offset, spacing, gap float64) {
