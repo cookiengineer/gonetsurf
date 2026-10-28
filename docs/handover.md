@@ -53,7 +53,7 @@ go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
 
 Current verification baseline:
 
-- 179 Go files across 37 packages, 65 test files, 304 test/fuzz/benchmark functions.
+- 180 Go files across 37 packages, 66 test files, 309 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -103,17 +103,21 @@ Current verification baseline:
   model/sizing (including intrinsic min-/max-content and fit-content), block
   layout with sibling and parent/child margin collapsing, simple inline line
   layout with word wrapping, relative/absolute/fixed positioning, and basic
-  row/column flexbox with grow/shrink, alignment, gaps, and order are tested.
+  row/column flexbox with grow/shrink, wrapping, alignment, gaps, and order are
+  tested.
   Basic table layout covers intrinsic column sizing, width distribution, row
   heights, and cell layout. Basic grid layout covers explicit/`repeat()` tracks,
   `fr` distribution, gaps, auto-placement, and explicit line placement. Floats
   cover left/right placement, shrink-to-fit widths, and block avoidance. Text
-  measurement uses a pluggable `TextShaper` with letter/word spacing, boxes
-  expose scroll-overflow metadata, logical properties map through
-  `writing-mode`/`direction`, bidi text runs are segmented, and `DocumentLayout`
-  caches/reuses laid-out trees by document mutation version. Shorthand expansion
+  measurement uses a pluggable `TextShaper` with font metrics (ascent/descent/
+  average advance), letter/word spacing, boxes
+  expose scroll-overflow metadata with clipping flags and clamped scroll offsets,
+  logical properties map through `writing-mode`/`direction`, bidi text runs are
+  segmented with basic RTL word and per-character visual ordering, and
+  `DocumentLayout` caches/reuses laid-out trees by document mutation version. Shorthand expansion
   covers margin, padding, border, border components, overflow, flex, flex-flow,
-  gap, and logical edges.
+  gap, and logical edges. A 9-case layout conformance harness
+  (`layouts/testdata/cases.json`) covers the same foundation scenarios.
 - Matching benchmarks: `dom` selector matching and `styles.Matcher.Elements` are
   benchmarked; the DOM matcher also has a fuzz target.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
@@ -193,10 +197,10 @@ These are intentional, tracked gaps rather than surprises:
   implemented. Layout-specific used values (percentage resolution against containing
   blocks, intrinsic sizing, text metrics) belong to Phase 6.
 - **Layout is implemented but needs verification depth.** All 14 Phase 6 tasks are
-  implemented, but several are `Partial`: flex wrapping/baseline alignment, sticky scroll
-  behavior, vertical-mode layout, inline bidi visual reordering, real font shaping, scroll
-  containers, styled-table edge cases, and dirty-subtree incremental reflow. Phase 6
-  verification against the full reftest corpus is still ahead.
+  implemented, but several are `Partial`: column flex wrapping, full baseline metrics,
+  sticky scroll behavior, vertical-mode layout, mixed-run bidi line layout, real font
+  files/kerning/fallback, scrollbar/paint integration, styled-table edge cases, and
+  dirty-subtree incremental reflow. Phase 6 verification against the full reftest corpus is still ahead.
 - **Incremental restyle is conservative.** Dirty nodes restyle their parent subtree;
   stylesheets using `:has()` trigger a full restyle because descendant changes can
   invalidate ancestors. Selector indexes are rebuilt on restyle.
@@ -264,8 +268,8 @@ Recorded in the relevant design docs under "Decisions":
 ## 8. Recommended next steps
 
 1. **Verify and deepen Phase 6.** Run layout reftests, add dirty-subtree reflow, and
-   refine flex wrapping/baseline alignment, sticky scroll behavior, vertical-mode layout,
-   inline bidi reordering, real font shaping, and scroll containers.
+   refine column flex wrapping/full baselines, sticky scroll behavior, vertical-mode
+   layout, mixed-run bidi line layout, real font shaping, and scrollbar paint.
 2. **Phase 7 — Painting.** After layout verification, add rasterization, backgrounds and
    borders, images, fonts, gradients, color management, stacking/compositing, and the
    headless pixel harness.

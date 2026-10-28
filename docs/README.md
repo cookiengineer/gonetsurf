@@ -21,9 +21,11 @@ presentational hints, cascade/inheritance, custom properties, relative-unit and
 per-property computed values, conditional integration, and incremental restyle are all
 implemented and tested. Phase 6 (layout) is implemented: box tree, box model, intrinsic
 sizing, block/inline/table/flex/grid formatting, floats, positioning, logical properties,
-bidi segmentation, simple text shaping, overflow metadata, and a mutation-versioned layout
-cache all exist. Layout reftest verification and deeper refinements are next, followed by
-Phase 7 painting. See [`handover.md`](./handover.md) for the full handover and
+bidi segmentation with RTL word and per-character visual ordering, simple text shaping
+with font metrics,
+overflow/scroll metadata with clamped scroll offsets, row flex wrapping, and a
+mutation-versioned layout cache all exist. A data-driven layout conformance harness covers the foundations; broader
+reftest verification and deeper refinements are next, followed by Phase 7 painting. See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 
 ## Documents

@@ -273,6 +273,39 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   P6-LAYOUT-014 is `Implemented`/`Partial`: dirty-subtree reflow and paint
   damage tracking remain refinements. All Phase 6 tasks are now implemented.
 
+- **2026-10-28 (Phase 6 verification harness):** Added a data-driven layout
+  conformance harness (`layouts/testdata/cases.json`) covering box model,
+  percentages, margin collapsing, inline wrapping, flex, tables, grid, absolute
+  positioning, and floats. All 9 cases pass. This is the first layout reftest
+  baseline; broader WPT reftest coverage remains.
+
+- **2026-10-28 (Phase 6 flex deepening):** Added row flex wrapping with
+  per-line free-space distribution, and baseline alignment for row flex items.
+  P6-LAYOUT-008 remains `Implemented`/`Partial` (column wrapping and full
+  baseline metrics remain).
+
+- **2026-10-28 (Phase 6 scroll containers):** Added overflow clipping flags,
+  scroll offsets with clamped `ScrollTo`/`ScrollBy`, and max-scroll helpers on
+  boxes. P6-LAYOUT-013 remains `Implemented`/`Partial` (scrollbar painting and
+  input integration remain).
+
+- **2026-10-28 (Phase 6 bidi layout):** Inline text now segments words through
+  `x/text/unicode/bidi` and reverses words within RTL runs, giving basic visual
+  word ordering for `direction:rtl` text. P6-LAYOUT-011 remains
+  `Implemented`/`Partial` (full per-character reordering and mixed-run line
+  layout remain).
+
+- **2026-10-28 (Phase 6 font metrics):** Added `FontMetrics` (ascent, descent,
+  line gap, average advance) with generic serif/sans-serif/monospace advance
+  factors. Simple text runs and flex baseline alignment now use these metrics.
+  P6-LAYOUT-012 remains `Implemented`/`Partial` (real font files, kerning, and
+  fallback are not yet loaded).
+
+- **2026-10-28 (Phase 6 bidi characters):** RTL runs now carry reversed
+  per-character `VisualText` while retaining logical `Text`, so rendering can use
+  visual order without losing source content. Mixed-run line layout remains a
+  refinement.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
