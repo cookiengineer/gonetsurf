@@ -6,7 +6,7 @@
 GO ?= go
 FUZZTIME ?= 10s
 BENCHTIME ?= 100x
-FORMAT_DIRS := cmd urls parsers protocols caches storages internal dom
+FORMAT_DIRS := cmd urls parsers protocols caches storages internal dom styles
 
 .PHONY: all build vet fmt fmt-check deps-check test conformance compliance-tests fuzz bench corpus-refresh spec-refresh clean
 
@@ -50,6 +50,7 @@ fuzz:
 	$(GO) test ./parsers/css/cssom/ -run=^$$ -fuzz=FuzzParseSerialize -fuzztime=$(FUZZTIME)
 	$(GO) test ./parsers/css/properties/ -run=^$$ -fuzz=FuzzValidate -fuzztime=$(FUZZTIME)
 	$(GO) test ./parsers/css/ -run=^$$ -fuzz=FuzzCSS -fuzztime=$(FUZZTIME)
+	$(GO) test ./dom/ -run=^$$ -fuzz=FuzzSelectors -fuzztime=$(FUZZTIME)
 	$(GO) test ./protocols/http1/ -run=^$$ -fuzz=FuzzReadResponse -fuzztime=$(FUZZTIME)
 
 bench:
