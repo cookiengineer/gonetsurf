@@ -16,14 +16,6 @@ func selectorSkipReason(input string) string {
 		return "tentative :has-slotted()"
 	case strings.Contains(input, ":heading"):
 		return "tentative :heading()"
-	case strings.Contains(input, "::slotted"), strings.Contains(input, "::part"):
-		return "::slotted()/::part() argument grammar not yet implemented"
-	case strings.Contains(input, ":not(::"), strings.Contains(input, ":host(:not("):
-		return "pseudo-element/complex-selector validation not yet implemented"
-	case strings.Contains(input, "::after:state"), strings.Contains(input, "::first-letter:state"):
-		return "pseudo-class after pseudo-element validation not yet implemented"
-	case strings.Contains(input, "*|"), strings.Contains(input, "|*"), strings.Contains(input, "[|"):
-		return "namespace syntax not yet implemented"
 	case strings.Contains(input, "-*"), strings.Contains(input, "*-"):
 		return "tentative class-prefix syntax"
 	default:
@@ -56,6 +48,9 @@ func TestWPTSelectorConformance(t *testing.T) {
 				t.Errorf("Parse(%q): valid = %v, want %v (err: %v)", input, gotValid, wantValid, parseErr)
 			}
 		}
+	}
+	if skipped != 78 {
+		t.Errorf("WPT selectors: got %d documented skips, want 78", skipped)
 	}
 	t.Logf("WPT selectors: %d cases, %d skipped, %d failures", len(entries), skipped, failures)
 }

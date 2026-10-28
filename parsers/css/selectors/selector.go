@@ -218,6 +218,9 @@ func (state *selectorState) parseComplexSelector(relative bool) (*ComplexSelecto
 		if !hasCombinator {
 			break
 		}
+		if compoundEndsWithPseudoElement(complexSelector.Compounds[len(complexSelector.Compounds)-1]) {
+			return nil, fmt.Errorf("css selectors: combinator is not allowed after a pseudo-element")
+		}
 		compound, err := state.parseCompoundSelector()
 		if err != nil {
 			return nil, err
@@ -226,6 +229,14 @@ func (state *selectorState) parseComplexSelector(relative bool) (*ComplexSelecto
 		complexSelector.Compounds = append(complexSelector.Compounds, *compound)
 	}
 	return complexSelector, nil
+}
+
+func compoundEndsWithPseudoElement(compound CompoundSelector) bool {
+	if len(compound.Parts) == 0 {
+		return false
+	}
+	_, ok := compound.Parts[len(compound.Parts)-1].(*PseudoElement)
+	return ok
 }
 
 // parseLeadingCombinator consumes a combinator at the start of a relative
@@ -319,6 +330,7 @@ func (state *selectorState) startsCompound() bool {
 
 func (state *selectorState) parseCompoundSelector() (*CompoundSelector, error) {
 	compound := &CompoundSelector{}
+	pseudoElement := ""
 loop:
 	for {
 		token, ok := parser.AsToken(state.next())
@@ -339,14 +351,43 @@ loop:
 			if len(compound.Parts) > 0 {
 				break loop
 			}
+			if isPipe(state.nextAt(1)) {
+				state.pos += 2
+				simple, err := state.parseTypeName(token.Value)
+				if err != nil {
+					return nil, err
+				}
+				compound.Parts = append(compound.Parts, simple)
+				continue
+			}
 			compound.Parts = append(compound.Parts, &TypeSelector{Name: token.Value})
 			state.pos++
 		case token.Type == tokenizer.TokenDelim && token.Value == "*":
 			if len(compound.Parts) > 0 {
 				break loop
 			}
+			if isPipe(state.nextAt(1)) {
+				state.pos += 2
+				simple, err := state.parseTypeName("*")
+				if err != nil {
+					return nil, err
+				}
+				compound.Parts = append(compound.Parts, simple)
+				continue
+			}
 			compound.Parts = append(compound.Parts, &TypeSelector{Universal: true})
 			state.pos++
+		case token.Type == tokenizer.TokenDelim && token.Value == "|":
+			if len(compound.Parts) > 0 {
+				break loop
+			}
+			state.pos++
+			simple, err := state.parseTypeName("")
+			if err != nil {
+				return nil, err
+			}
+			compound.Parts = append(compound.Parts, simple)
+			continue
 		case token.Type == tokenizer.TokenDelim && token.Value == "&":
 			compound.Parts = append(compound.Parts, &NestingSelector{})
 			state.pos++
@@ -369,6 +410,14 @@ loop:
 			if err != nil {
 				return nil, err
 			}
+			if pseudo, ok := simple.(*PseudoClass); ok && pseudoElement != "" {
+				if pseudoElement != "part" || strings.EqualFold(pseudo.Name, "has") {
+					return nil, fmt.Errorf("css selectors: pseudo-class :%s is not allowed after ::%s", pseudo.Name, pseudoElement)
+				}
+			}
+			if element, ok := simple.(*PseudoElement); ok {
+				pseudoElement = strings.ToLower(element.Name)
+			}
 			compound.Parts = append(compound.Parts, simple)
 		default:
 			break loop
@@ -378,6 +427,23 @@ loop:
 		return nil, fmt.Errorf("css selectors: empty compound selector")
 	}
 	return compound, nil
+}
+
+func (state *selectorState) parseTypeName(namespace string) (SimpleSelector, error) {
+	token, ok := parser.AsToken(state.next())
+	if !ok {
+		return nil, fmt.Errorf("css selectors: expected type name after namespace")
+	}
+	switch {
+	case token.Type == tokenizer.TokenIdent:
+		state.pos++
+		return &TypeSelector{Namespace: namespace, Name: token.Value}, nil
+	case token.Type == tokenizer.TokenDelim && token.Value == "*":
+		state.pos++
+		return &TypeSelector{Namespace: namespace, Universal: true}, nil
+	default:
+		return nil, fmt.Errorf("css selectors: expected type name after namespace")
+	}
 }
 
 func (state *selectorState) parsePseudo() (SimpleSelector, error) {
@@ -393,6 +459,9 @@ func (state *selectorState) parsePseudo() (SimpleSelector, error) {
 		if isElement {
 			if !isKnownPseudoElement(token.Value) {
 				return nil, fmt.Errorf("css selectors: unknown pseudo-element ::%s", token.Value)
+			}
+			if isFunctionalPseudoElement(token.Value) {
+				return nil, fmt.Errorf("css selectors: pseudo-element ::%s requires arguments", token.Value)
 			}
 			return &PseudoElement{Name: token.Value}, nil
 		}
@@ -410,6 +479,9 @@ func (state *selectorState) parsePseudo() (SimpleSelector, error) {
 			if !isKnownPseudoElement(function.Name) {
 				return nil, fmt.Errorf("css selectors: unknown pseudo-element ::%s()", function.Name)
 			}
+			if err := validatePseudoElementArgument(function); err != nil {
+				return nil, err
+			}
 			return &PseudoElement{Name: function.Name, Argument: serialize(function.Value)}, nil
 		}
 		if !isKnownPseudoClass(function.Name) {
@@ -418,6 +490,42 @@ func (state *selectorState) parsePseudo() (SimpleSelector, error) {
 		return parseFunctionalPseudoClass(function)
 	}
 	return nil, fmt.Errorf("css selectors: expected pseudo name")
+}
+
+func validatePseudoElementArgument(function *parser.Function) error {
+	switch strings.ToLower(function.Name) {
+	case "part":
+		trimmed := trimWhitespace(function.Value)
+		if len(trimmed) == 0 {
+			return fmt.Errorf("css selectors: ::part() requires an identifier")
+		}
+		for _, value := range trimmed {
+			if parser.IsWhitespace(value) {
+				continue
+			}
+			token, ok := parser.AsToken(value)
+			if !ok || token.Type != tokenizer.TokenIdent {
+				return fmt.Errorf("css selectors: ::part() requires identifiers")
+			}
+		}
+	case "slotted":
+		state := &selectorState{values: function.Value}
+		state.skipWhitespace()
+		compound, err := state.parseCompoundSelector()
+		if err != nil {
+			return err
+		}
+		state.skipWhitespace()
+		if !parser.IsEOF(state.next()) {
+			return fmt.Errorf("css selectors: ::slotted() requires a compound selector")
+		}
+		for _, part := range compound.Parts {
+			if _, ok := part.(*PseudoElement); ok {
+				return fmt.Errorf("css selectors: ::slotted() cannot contain a pseudo-element")
+			}
+		}
+	}
+	return nil
 }
 
 func isLegacyPseudoElement(name string) bool {
@@ -436,6 +544,9 @@ func parseFunctionalPseudoClass(function *parser.Function) (SimpleSelector, erro
 		if err != nil {
 			return nil, err
 		}
+		if containsPseudoElement(list) {
+			return nil, fmt.Errorf("css selectors: :%s() cannot contain a pseudo-element", function.Name)
+		}
 		return &PseudoClass{Name: function.Name, Selectors: list}, nil
 	case "has":
 		list, err := parseSelectorValues(function.Value, true)
@@ -444,6 +555,18 @@ func parseFunctionalPseudoClass(function *parser.Function) (SimpleSelector, erro
 		}
 		if containsHas(list) {
 			return nil, fmt.Errorf("css selectors: :has() cannot be nested")
+		}
+		if containsPseudoElement(list) {
+			return nil, fmt.Errorf("css selectors: :has() cannot contain a pseudo-element")
+		}
+		return &PseudoClass{Name: function.Name, Selectors: list}, nil
+	case "host":
+		list, err := parseSelectorValues(function.Value, false)
+		if err != nil {
+			return nil, err
+		}
+		if !allCompoundSelectors(list) {
+			return nil, fmt.Errorf("css selectors: :host() requires a compound selector")
 		}
 		return &PseudoClass{Name: function.Name, Selectors: list}, nil
 	case "state":
@@ -469,6 +592,42 @@ func parseFunctionalPseudoClass(function *parser.Function) (SimpleSelector, erro
 	default:
 		return &PseudoClass{Name: function.Name, Argument: serialize(function.Value)}, nil
 	}
+}
+
+func containsPseudoElement(list *SelectorList) bool {
+	if list == nil {
+		return false
+	}
+	for _, complexSelector := range list.Selectors {
+		for _, compound := range complexSelector.Compounds {
+			for _, part := range compound.Parts {
+				if _, ok := part.(*PseudoElement); ok {
+					return true
+				}
+				if pseudo, ok := part.(*PseudoClass); ok && pseudo.Selectors != nil && containsPseudoElement(pseudo.Selectors) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func allCompoundSelectors(list *SelectorList) bool {
+	if list == nil {
+		return false
+	}
+	for _, complexSelector := range list.Selectors {
+		if len(complexSelector.Compounds) != 1 || len(complexSelector.Combinators) != 0 {
+			return false
+		}
+		for _, part := range complexSelector.Compounds[0].Parts {
+			if pseudo, ok := part.(*PseudoClass); ok && pseudo.Selectors != nil && !allCompoundSelectors(pseudo.Selectors) {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // containsHas reports whether a selector list uses :has() at any depth.
@@ -512,14 +671,16 @@ func parseAttributeSelector(block *parser.Block) (*AttributeSelector, error) {
 	}
 	index := 0
 	// Optional namespace: ns|name, *|name, |name.
-	if token, ok := parser.AsToken(trimmed[index]); ok && token.Type == tokenizer.TokenDelim {
-		if token.Value == "*" || token.Value == "|" {
-			if token.Value == "*" {
-				attribute.Namespace = "*"
-			}
-			if index+2 < len(trimmed) && isPipe(trimmed[index+1]) {
-				index += 2
-			}
+	if token, ok := parser.AsToken(trimmed[index]); ok {
+		switch {
+		case token.Type == tokenizer.TokenIdent && index+1 < len(trimmed) && isNamespacePipe(trimmed, index+1):
+			attribute.Namespace = token.Value
+			index += 2
+		case token.Type == tokenizer.TokenDelim && token.Value == "*" && index+1 < len(trimmed) && isNamespacePipe(trimmed, index+1):
+			attribute.Namespace = "*"
+			index += 2
+		case token.Type == tokenizer.TokenDelim && token.Value == "|":
+			index++
 		}
 	}
 	nameToken, ok := parser.AsToken(trimmed[index])
@@ -569,6 +730,17 @@ func parseAttributeSelector(block *parser.Block) (*AttributeSelector, error) {
 func isPipe(value parser.ComponentValue) bool {
 	token, ok := parser.AsToken(value)
 	return ok && token.Type == tokenizer.TokenDelim && token.Value == "|"
+}
+
+func isNamespacePipe(values []parser.ComponentValue, index int) bool {
+	if index < 0 || index+1 >= len(values) {
+		return false
+	}
+	if !isPipe(values[index]) {
+		return false
+	}
+	next, ok := parser.AsToken(values[index+1])
+	return !ok || next.Type != tokenizer.TokenDelim || next.Value != "="
 }
 
 // matchOperator recognizes attribute match operators. The tokenizer emits
