@@ -345,5 +345,86 @@
     "scrollHeight": 40
    }
   ]
+ },
+ {
+  "description": "max-width clamps a specified width",
+  "html": "<div id=\"target\" style=\"width:300px;max-width:100px;height:10px\"></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "width": 100,
+    "contentWidth": 100
+   }
+  ]
+ },
+ {
+  "description": "border-box sizing subtracts padding and border",
+  "html": "<div id=\"target\" style=\"box-sizing:border-box;width:100px;height:50px;padding:10px;border:2px solid\"></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "width": 100,
+    "height": 50,
+    "contentWidth": 76,
+    "contentHeight": 26
+   }
+  ]
+ },
+ {
+  "description": "parent bottom margin collapses with the last child",
+  "html": "<div id=\"target\"><div style=\"height:10px;margin-bottom:30px\"></div></div><div id=\"next\" style=\"height:10px\"></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "height": 10,
+    "contentHeight": 10
+   },
+   {
+    "id": "next",
+    "y": 40,
+    "height": 10
+   }
+  ]
+ },
+ {
+  "description": "flex-wrap moves overflow to the next line",
+  "html": "<div id=\"target\" style=\"display:flex;flex-wrap:wrap;width:120px;column-gap:10px;align-items:flex-start\"><div id=\"a\" style=\"width:50px;height:20px\"></div><div id=\"b\" style=\"width:50px;height:20px\"></div><div id=\"c\" style=\"width:50px;height:20px\"></div></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "a",
+    "x": 0,
+    "y": 0
+   },
+   {
+    "id": "b",
+    "x": 60,
+    "y": 0
+   },
+   {
+    "id": "c",
+    "x": 0,
+    "y": 20
+   }
+  ]
  }
 ]

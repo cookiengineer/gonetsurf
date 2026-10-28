@@ -1213,3 +1213,28 @@ func TestTextRotationMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestMixedBidiRuns(t *testing.T) {
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	paragraph.SetAttribute("class", "mixed")
+	paragraph.AppendChild(document.CreateTextNode("abc אב"))
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p.mixed { display:block; width:400px; direction:ltr; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(800, 600)
+	layout.Layout(root)
+	p := findBox(root, paragraph)
+	if len(p.Children) != 2 {
+		t.Fatalf("mixed words = %#v", p.Children)
+	}
+	if p.Children[0].Text != "abc" || p.Children[0].VisualText != "abc" {
+		t.Errorf("ltr run = %#v", p.Children[0])
+	}
+	if p.Children[1].Text != "אב" || p.Children[1].VisualText != "בא" {
+		t.Errorf("rtl run = %#v", p.Children[1])
+	}
+}
