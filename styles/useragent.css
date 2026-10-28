@@ -1,0 +1,50 @@
+/* Minimal HTML user-agent stylesheet.
+ *
+ * The default display matrix follows the HTML rendering specification and is
+ * intentionally small; Phase 6 layout will consume these values, and later
+ * phases can extend the sheet without changing the style engine.
+ */
+
+html, body, address, article, aside, blockquote, div, dl, fieldset, figcaption,
+figure, footer, form, h1, h2, h3, h4, h5, h6, header, hgroup, hr, main, nav,
+ol, p, pre, section, ul {
+  display: block;
+}
+
+head, base, link, meta, style, title, template, script, noscript, datalist {
+  display: none;
+}
+
+li { display: list-item; }
+table { display: table; }
+caption { display: table-caption; }
+colgroup { display: table-column-group; }
+col { display: table-column; }
+thead { display: table-header-group; }
+tbody { display: table-row-group; }
+tfoot { display: table-footer-group; }
+tr { display: table-row; }
+td, th { display: table-cell; }
+
+a:any-link { color: #0000ee; text-decoration: underline; }
+strong, b { font-weight: bold; }
+em, i { font-style: italic; }
+pre, code, kbd, samp { font-family: monospace; }
+h1 { font-size: 2em; margin: 0.67em 0; font-weight: bold; }
+h2 { font-size: 1.5em; margin: 0.83em 0; font-weight: bold; }
+h3 { font-size: 1.17em; margin: 1em 0; font-weight: bold; }
+h4 { font-size: 1em; margin: 1.33em 0; font-weight: bold; }
+h5 { font-size: 0.83em; margin: 1.67em 0; font-weight: bold; }
+h6 { font-size: 0.67em; margin: 2.33em 0; font-weight: bold; }
+body { margin: 8px; }
+p, dl { margin: 1em 0; }
+ul, ol { margin: 1em 0; padding-left: 40px; }
+blockquote { margin: 1em 40px; }
+figure { margin: 1em 40px; }
+hr { display: block; margin: 0.5em auto; border: 1px inset; }
+pre { margin: 1em 0; white-space: pre; }
+button, input, select, textarea { display: inline-block; }
+textarea { white-space: pre-wrap; }
+img, video, canvas, iframe, object, embed, svg { display: inline; }
+[hidden], area, track, param { display: none; }
+dialog:not([open]) { display: none; }
