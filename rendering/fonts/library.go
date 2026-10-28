@@ -66,6 +66,10 @@ type fontEntry struct {
 	path   string
 
 	author            bool
+	partition         string
+	descriptor        string
+	resourceCache     *fontResourceCache
+	async             bool
 	minimumWeight     int
 	maximumWeight     int
 	sources           []fontSource
@@ -82,33 +86,81 @@ type fontEntry struct {
 	localFont         func(string) (*sfnt.Font, error)
 	loadURL           func(string) ([]byte, error)
 
-	once     sync.Once
+	mutex    sync.Mutex
 	parsed   *sfnt.Font
 	parseErr error
+	loaded   bool
+	loading  bool
+	done     chan struct{}
 }
 
+var errFontNotReady = fmt.Errorf("fonts: font is not ready")
+
 func (entry *fontEntry) font() (*sfnt.Font, error) {
-	entry.once.Do(func() {
+	entry.mutex.Lock()
+	if entry.loaded {
+		parsed, parseErr := entry.parsed, entry.parseErr
+		entry.mutex.Unlock()
+		return parsed, parseErr
+	}
+	if entry.loading {
+		if entry.async {
+			entry.mutex.Unlock()
+			return nil, errFontNotReady
+		}
+		done := entry.done
+		entry.mutex.Unlock()
+		<-done
+		entry.mutex.Lock()
+		parsed, parseErr := entry.parsed, entry.parseErr
+		entry.mutex.Unlock()
+		return parsed, parseErr
+	}
+	entry.loading = true
+	done := make(chan struct{})
+	entry.done = done
+	async := entry.async
+	entry.mutex.Unlock()
+
+	load := func() {
+		var parsed *sfnt.Font
+		var parseErr error
 		if entry.author {
-			entry.parsed, entry.parseErr = entry.loadAuthorFont()
-			return
-		}
-		data := entry.data
-		if data == nil && entry.path != "" {
-			loaded, err := os.ReadFile(entry.path)
-			if err != nil {
-				entry.parseErr = err
-				return
+			parsed, parseErr = entry.loadAuthorFont()
+		} else {
+			data := entry.data
+			if data == nil && entry.path != "" {
+				loaded, err := os.ReadFile(entry.path)
+				if err != nil {
+					parseErr = err
+				} else {
+					data = loaded
+				}
 			}
-			data = loaded
+			if parseErr == nil && data == nil {
+				parseErr = fmt.Errorf("fonts: font has no data")
+			}
+			if parseErr == nil {
+				parsed, parseErr = parseFontData(data)
+			}
 		}
-		if data == nil {
-			entry.parseErr = fmt.Errorf("fonts: font has no data")
-			return
-		}
-		entry.parsed, entry.parseErr = parseFontData(data)
-	})
-	return entry.parsed, entry.parseErr
+		entry.mutex.Lock()
+		entry.parsed = parsed
+		entry.parseErr = parseErr
+		entry.loaded = true
+		entry.loading = false
+		entry.mutex.Unlock()
+		close(done)
+	}
+	if async {
+		go load()
+		return nil, errFontNotReady
+	}
+	load()
+	entry.mutex.Lock()
+	parsed, parseErr := entry.parsed, entry.parseErr
+	entry.mutex.Unlock()
+	return parsed, parseErr
 }
 
 func parseFontData(data []byte) (*sfnt.Font, error) {
@@ -141,6 +193,7 @@ type Library struct {
 	authorEntries   []*fontEntry
 	loadSystemFonts bool
 	system          *systemState
+	resourceCache   *fontResourceCache
 
 	mutex sync.Mutex
 	faces map[faceKey]font.Face
@@ -167,10 +220,11 @@ var embeddedEntries = sync.OnceValue(func() []*fontEntry {
 
 func NewLibrary() *Library {
 	return &Library{
-		entries:    append([]*fontEntry(nil), embeddedEntries()...),
-		faces:      make(map[faceKey]font.Face),
-		glyphCache: NewGlyphCache(),
-		system:     &systemState{},
+		entries:       append([]*fontEntry(nil), embeddedEntries()...),
+		faces:         make(map[faceKey]font.Face),
+		glyphCache:    NewGlyphCache(),
+		system:        &systemState{},
+		resourceCache: newFontResourceCache(),
 	}
 }
 
@@ -196,6 +250,7 @@ func (library *Library) Clone() *Library {
 		authorEntries:   append([]*fontEntry(nil), library.authorEntries...),
 		loadSystemFonts: library.loadSystemFonts,
 		system:          library.system,
+		resourceCache:   library.resourceCache,
 		faces:           make(map[faceKey]font.Face),
 		glyphCache:      NewGlyphCache(),
 	}
@@ -663,6 +718,9 @@ func FaceForRuneChain(faces []font.Face, character rune) font.Face {
 func (library *Library) MetricsForSpec(spec Spec) layouts.FontMetrics {
 	entry := library.selectEntry(spec)
 	face := library.faceForEntry(entry, spec)
+	if face == nil {
+		face = library.Face(Spec{Family: "Go", Size: spec.Size, Weight: spec.Weight})
+	}
 	if face == nil {
 		return layouts.MetricsForStyle(nil)
 	}

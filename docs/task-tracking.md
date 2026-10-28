@@ -35,10 +35,11 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 > 3 Partial); Phase 8 has 5 Verified and 1 Partial (browsing-context edges).
 > Phase 9 is complete: IPC, shared memory, supervision, sandbox primitives,
 > the network broker (cookies/cache and INET seccomp guard), and the persistent
-> storage broker are all Verified. Phase 6 is fully Verified, and Phase 7's
-> paint/stacking task now covers 3D/perspective and individual transforms,
-> `srcset`/`picture`, video posters, and z-auto nesting. Totals:
-> **95 Verified, 4 Implemented/Partial, 18 Planned, 0 Blocked**. For a
+> storage broker are all Verified. Phase 6 is fully Verified; Phase 7's
+> paint/stacking task covers 3D/perspective, individual transforms, and replaced
+> content, and web-font loading now includes partitioned caching and
+> `font-display`. Totals:
+> **96 Verified, 3 Implemented/Partial, 18 Planned, 0 Blocked**. For a
 > narrative summary see [`handover.md`](./handover.md).
 
 ## Summary
@@ -52,12 +53,12 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
 | 6 Layout | 14 | 14 | 0 | 0 | 0 |
-| 7 Paint/Fonts/Images/Color | 13 | 11 | 2 | 0 | 0 |
+| 7 Paint/Fonts/Images/Color | 13 | 12 | 1 | 0 | 0 |
 | 8 Window/UI | 6 | 5 | 1 | 0 | 0 |
 | 9 Process/Sandbox | 6 | 6 | 0 | 0 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **117** | **95** | **4** | **18** | **0** |
+| **Total** | **117** | **96** | **3** | **18** | **0** |
 
 ## Progress log
 
@@ -584,6 +585,15 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   perspective, z-auto nesting, srcset/picture, and video-poster tests.
   P7-PAINT-003 is `Verified`.
 
+- **2026-10-28 (P7-FONT-003 close-out):** Added a shared partitioned font
+  resource cache keyed by URL/format/descriptors, synchronous loading for
+  `auto`/`block`/`fallback`, asynchronous fallback-first loading for
+  `swap`/`optional`, font-size limits, and fallback-chain behavior when a face
+  is not ready or fails. Added same/cross-partition cache, loader-count,
+  `font-display` swap/block, malformed-font fallback, and local/data/WOFF tests.
+  P7-FONT-003 is `Verified`; WOFF2 remains explicitly out of scope until a
+  Brotli decoder is added.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -704,7 +714,7 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | P7-IMG-003 | CSS gradients | Verified | Y | Y | Compliant | - |
 | P7-FONT-001 | Font loading and rasterization | Verified | Y | Y | Compliant | - |
 | P7-FONT-002 | `@font-face` rule parsing and descriptors | Verified | Y | Y | Compliant | - |
-| P7-FONT-003 | Web-font loading, caching, and font-display | Implemented | Y | Y | Partial | - |
+| P7-FONT-003 | Web-font loading, caching, and font-display | Verified | Y | Y | Compliant | - |
 | P7-FONT-004 | Author-font matching and text features | Implemented | Y | Y | Partial | - |
 | P7-COLOR-001 | Color management | Verified | Y | Y | Compliant | - |
 | P7-PAINT-003 | Paint and stacking | Verified | Y | Y | Compliant | - |

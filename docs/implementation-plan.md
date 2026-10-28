@@ -29,8 +29,8 @@ work.
 > tracking are implemented; the headless renderer, pixel comparator, and
 > reftest runner are implemented (`netsurfctl render`, `netsurfctl reftest`),
 > and the X11 shell renders interactive pages (`netsurf show`).
-> Phase 7 has 11 tasks Verified and 2 Partial with recorded dependencies
-> (WOFF2/Brotli + font-display timing, and OpenType feature/variation shaping). Phase 8
+> Phase 7 has 12 tasks Verified and 1 Partial (OpenType feature/variation
+> shaping, dependent on P10-TEXT-001). Phase 8
 > is implemented: X11 input, clipboard, MIT-SHM, browser tabs/session, rasterized
 > chrome, and the interactive `cmd/netsurf` shell; P8-SHELL-002 remains Partial
 > for full browsing-context edges. Phase 9 IPC framing/shared memory, process

@@ -19,14 +19,17 @@ import (
 	"gonetsurf/urls"
 )
 
+const maxFontBytes = 32 << 20
+
 // Loader fetches a web-font resource. External fetching is supplied by the
 // caller; data: URLs are handled internally.
 type Loader func(resource string) ([]byte, error)
 
 // AuthorOptions configures @font-face registration.
 type AuthorOptions struct {
-	Base   *urls.URL
-	Loader Loader
+	Base      *urls.URL
+	Partition string
+	Loader    Loader
 }
 
 type fontSource struct {
@@ -68,7 +71,15 @@ func (library *Library) AddFontFaceRules(rules []*cssom.FontFaceRule, options Au
 			featureSettings:   rule.FeatureSettings,
 			variationSettings: rule.VariationSettings,
 			fontDisplay:       rule.FontDisplay,
+			partition:         options.Partition,
+			resourceCache:     library.resourceCache,
 		}
+		entry.descriptor = fmt.Sprintf("%s|%d-%d|%s|%.3f-%.3f|%s|%s|%s",
+			rule.Family, minimumWeight, maximumWeight, rule.FontStyle,
+			stretchMinimum, stretchMaximum, rule.FeatureSettings,
+			rule.VariationSettings, rule.FontDisplay)
+		display := strings.ToLower(strings.TrimSpace(rule.FontDisplay))
+		entry.async = display == "swap" || display == "optional"
 		if factor, ok := parsePercentageFactor(rule.SizeAdjust); ok {
 			entry.sizeAdjust = factor
 		}
@@ -139,13 +150,17 @@ func (entry *fontEntry) loadAuthorFont() (*sfnt.Font, error) {
 		}
 		var data []byte
 		var err error
-		if strings.HasPrefix(strings.ToLower(source.URL), "data:") {
+		key := fontResourceKey{partition: entry.partition, url: source.URL, format: source.Format, descriptor: entry.descriptor}
+		if cached, cacheErr, ok := entry.resourceCache.get(key); ok {
+			data, err = cached, cacheErr
+		} else if strings.HasPrefix(strings.ToLower(source.URL), "data:") {
 			body, parseErr := decodeFontDataURL(source.URL)
 			if parseErr != nil {
 				lastError = parseErr
 				continue
 			}
 			data = body
+			entry.resourceCache.put(key, data, nil)
 		} else {
 			if entry.loadURL == nil {
 				lastError = fmt.Errorf("fonts: no font loader configured")
@@ -154,8 +169,19 @@ func (entry *fontEntry) loadAuthorFont() (*sfnt.Font, error) {
 			data, err = entry.loadURL(source.URL)
 			if err != nil {
 				lastError = err
+				entry.resourceCache.put(key, nil, err)
 				continue
 			}
+			entry.resourceCache.put(key, data, nil)
+		}
+		if err != nil {
+			lastError = err
+			continue
+		}
+		if len(data) > maxFontBytes {
+			lastError = fmt.Errorf("fonts: font exceeds the size limit")
+			entry.resourceCache.put(key, nil, lastError)
+			continue
 		}
 		parsed, err := parseFontData(data)
 		if err == nil {

@@ -38,7 +38,11 @@ func RenderDocumentWithOptions(document *dom.Document, engine *styles.Engine, wi
 	fontFaces := engine.FontFaces()
 	if len(fontFaces) > 0 {
 		library = library.Clone()
-		library.AddFontFaceRules(fontFaces, fonts.AuthorOptions{Base: document.URL, Loader: options.LoadFont})
+		partition := ""
+		if document.URL != nil {
+			partition = document.URL.Site()
+		}
+		library.AddFontFaceRules(fontFaces, fonts.AuthorOptions{Base: document.URL, Partition: partition, Loader: options.LoadFont})
 	}
 	root := layouts.BuildDocument(document, engine)
 	return renderBoxWithOptions(root, width, height, options.Images, document.URL, library)

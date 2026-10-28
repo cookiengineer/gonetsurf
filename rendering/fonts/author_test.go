@@ -5,8 +5,13 @@ import (
 	"compress/zlib"
 	"encoding/base64"
 	"encoding/binary"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
@@ -175,5 +180,116 @@ func TestWOFFAuthorFace(t *testing.T) {
 	library.AddFontFaceRules([]*cssom.FontFaceRule{rule}, AuthorOptions{})
 	if face := library.Face(Spec{Family: "WOFFTest", Size: 16}); face == nil {
 		t.Fatal("WOFF face is nil")
+	}
+}
+
+func TestFontResourceCachePartitions(t *testing.T) {
+	cache := newFontResourceCache()
+	firstKey := fontResourceKey{partition: "site-a", url: "https://example.com/font.ttf"}
+	cache.put(firstKey, []byte("font"), nil)
+	if data, _, ok := cache.get(firstKey); !ok || string(data) != "font" {
+		t.Errorf("cache hit = (%q,%v)", data, ok)
+	}
+	secondKey := fontResourceKey{partition: "site-b", url: "https://example.com/font.ttf"}
+	if _, _, ok := cache.get(secondKey); ok {
+		t.Error("cache leaked across partitions")
+	}
+}
+
+func TestFontDisplaySwap(t *testing.T) {
+	loaderStarted := make(chan struct{})
+	releaseLoader := make(chan struct{})
+	loader := func(resource string) ([]byte, error) {
+		close(loaderStarted)
+		<-releaseLoader
+		return goregular.TTF, nil
+	}
+	rule := fontFaceRule(t, `@font-face { font-family: "SwapTest"; src: url("https://example.com/swap.ttf"); font-display: swap }`)
+	library := NewLibrary()
+	library.AddFontFaceRules([]*cssom.FontFaceRule{rule}, AuthorOptions{Loader: loader})
+	if face := library.Face(Spec{Family: "SwapTest", Size: 16}); face != nil {
+		t.Fatal("swap face should not block the first render")
+	}
+	<-loaderStarted
+	close(releaseLoader)
+	deadline := time.Now().Add(2 * time.Second)
+	for library.Face(Spec{Family: "SwapTest", Size: 16}) == nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if face := library.Face(Spec{Family: "SwapTest", Size: 16}); face == nil {
+		t.Fatal("swap face did not become available")
+	}
+}
+
+func TestFontDisplayBlock(t *testing.T) {
+	rule := fontFaceRule(t, `@font-face { font-family: "BlockTest"; src: url(`+fontDataURL("font/ttf", goregular.TTF)+`); font-display: block }`)
+	library := NewLibrary()
+	library.AddFontFaceRules([]*cssom.FontFaceRule{rule}, AuthorOptions{})
+	if face := library.Face(Spec{Family: "BlockTest", Size: 16}); face == nil {
+		t.Fatal("block face was not loaded synchronously")
+	}
+}
+
+func TestFontLoaderCacheAndPartitions(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Write(goregular.TTF)
+	}))
+	defer server.Close()
+	var loads int32
+	loader := func(resource string) ([]byte, error) {
+		atomic.AddInt32(&loads, 1)
+		response, err := http.Get(resource)
+		if err != nil {
+			return nil, err
+		}
+		defer response.Body.Close()
+		return io.ReadAll(response.Body)
+	}
+	rule := fontFaceRule(t, `@font-face { font-family: "CacheFace"; src: url("`+server.URL+`/font.ttf") }`)
+	base := NewLibrary()
+	base.AddFontFaceRules([]*cssom.FontFaceRule{rule}, AuthorOptions{Partition: "site-a", Loader: loader})
+	if face := base.Face(Spec{Family: "CacheFace", Size: 16}); face == nil {
+		t.Fatal("initial font load failed")
+	}
+	if atomic.LoadInt32(&loads) != 1 {
+		t.Fatalf("loads = %d, want 1", loads)
+	}
+	samePartition := NewLibrary()
+	samePartition.resourceCache = base.resourceCache
+	samePartition.AddFontFaceRules([]*cssom.FontFaceRule{rule}, AuthorOptions{Partition: "site-a", Loader: loader})
+	if face := samePartition.Face(Spec{Family: "CacheFace", Size: 16}); face == nil {
+		t.Fatal("cached font load failed")
+	}
+	if atomic.LoadInt32(&loads) != 1 {
+		t.Errorf("same-partition cache miss: loads = %d", loads)
+	}
+	other := NewLibrary()
+	other.resourceCache = base.resourceCache
+	other.AddFontFaceRules([]*cssom.FontFaceRule{rule}, AuthorOptions{Partition: "site-b", Loader: loader})
+	if face := other.Face(Spec{Family: "CacheFace", Size: 16}); face == nil {
+		t.Fatal("other-partition font load failed")
+	}
+	if atomic.LoadInt32(&loads) != 2 {
+		t.Errorf("cross-partition cache leak: loads = %d", loads)
+	}
+}
+
+func TestFontFailureFallsBack(t *testing.T) {
+	rule := fontFaceRule(t, `@font-face { font-family: "BrokenFace"; src: url("https://example.com/broken.ttf") }`)
+	library := NewLibrary()
+	library.AddFontFaceRules([]*cssom.FontFaceRule{rule}, AuthorOptions{
+		Loader: func(resource string) ([]byte, error) {
+			return []byte("not a font"), nil
+		},
+	})
+	if face := library.Face(Spec{Family: "BrokenFace", Size: 16}); face != nil {
+		t.Fatal("broken font produced a face")
+	}
+	faces := library.Faces(Spec{Family: "BrokenFace", Size: 16})
+	if len(faces) == 0 {
+		t.Fatal("missing fallback chain")
+	}
+	if _, _, ok := faces[0].GlyphBounds('A'); !ok {
+		t.Fatal("fallback face has no glyphs")
 	}
 }

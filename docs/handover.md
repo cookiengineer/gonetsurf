@@ -28,13 +28,13 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Done** (14/14 Verified) |
 | 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
 | 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (14/14 Verified) |
-| 7 | Paint/fonts/images/color | **Mostly done** (11 Verified, 2 Partial: WOFF2/font-display and OpenType features) |
+| 7 | Paint/fonts/images/color | **Mostly done** (12 Verified, 1 Partial: OpenType feature/variation shaping) |
 | 8 | X11 window/UI shell | **Done** (5 Verified, 1 Partial for full browsing-context edges) |
 | 9 | Process sandbox/brokers | **Done** (6/6 Verified) |
 | 10 | JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **95 Verified, 4 Implemented/Partial, 18 Planned, 0 Blocked**. There are no open
+Totals: **96 Verified, 3 Implemented/Partial, 18 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is now an interactive browser executable: `go run ./cmd/netsurf [url]` opens an
@@ -64,7 +64,7 @@ go test ./urls/ -run='^$' -fuzz='^FuzzParse$' -fuzztime=30s
 
 Current verification baseline:
 
-- 302 Go files across 53 packages, 122 test files, 534 test/fuzz/benchmark functions.
+- 303 Go files across 53 packages, 122 test files, 539 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -325,9 +325,10 @@ These are intentional, tracked gaps rather than surprises:
   pinned spec should be refreshed with `specifications/update.sh`.
 - **Painting still has feature gaps.** Fonts use embedded Go faces, system
   TrueType/OpenType files, and author `@font-face` faces (raw TTF/OTF and WOFF1;
-  WOFF2 is rejected until a Brotli decoder is added). `font-display` timing,
-  partition-aware font caches, and application of feature/variation settings
-  remain partial, as do TTC collections and full GSUB/GPOS shaping.
+  WOFF2 is rejected until a Brotli decoder is added). Partitioned font caches
+  and `font-display` behavior are implemented; application of
+  feature/variation settings and full GSUB/GPOS shaping remain blocked on
+  P10-TEXT-001.
   Transforms cover 2D and 3D/projective translate/scale/rotate/skew/matrix,
   individual transform properties, and perspective; `transform-style:
   preserve-3d`, backface visibility, and filters remain. Replaced content
@@ -396,10 +397,9 @@ Recorded in the relevant design docs under "Decisions":
 1. **Finish Phase 8 polish.** Implement the full browsing-context model
    (opener/iframe/same-document navigation), page scrolling, URL
    autocomplete/search, tab drag/reorder, and a richer privacy dashboard.
-2. **Resolve the two Phase 7 partial dependencies.** Add a Brotli decoder for
-   WOFF2 plus an async font/runtime loop for `font-display` (P7-FONT-003), and
-   the OpenType GSUB/GPOS shaper (P10-TEXT-001) for feature/variation settings
-   (P7-FONT-004).
+2. **Resolve the remaining Phase 7 partial dependency.** Add the OpenType
+   GSUB/GPOS shaper (P10-TEXT-001) for `font-feature-settings`,
+   `font-variation-settings`, and variable-axis selection (P7-FONT-004).
 3. **Vendor and run WPT reftests.** `netsurfctl reftest` is ready; add the WPT
    reftest subset and CI thresholds, then close the remaining non-blocking
    gaps (`background-blend-mode`, SVG text/use/clipPath/mask/pattern/filter,
