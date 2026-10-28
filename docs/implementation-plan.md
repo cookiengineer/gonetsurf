@@ -16,7 +16,10 @@ work.
 > restyle. Phase 6 (layout) is in progress: box-tree construction, the box model,
 > intrinsic sizing, block layout with sibling/parent-child margin collapsing, simple
 > inline line layout, relative/absolute/fixed positioning, basic flexbox, tables, grid,
-> and floats are implemented. See [`handover.md`](./handover.md) for the status and gaps.
+> floats, simple text shaping, overflow metadata, logical property mapping, bidi run
+> segmentation, and a mutation-versioned layout cache are implemented. All 14 Phase 6 tasks
+> now exist; verification depth and refinements are next. See
+> [`handover.md`](./handover.md) for the status and gaps.
 
 ## How to read a task
 

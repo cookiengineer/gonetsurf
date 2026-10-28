@@ -34,13 +34,13 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 3 HTML/DOM | 6 | 6 | 0 | 0 | 0 |
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
-| 6 Layout | 14 | 1 | 8 | 5 | 0 |
+| 6 Layout | 14 | 1 | 13 | 0 | 0 |
 | 7 Paint/Fonts/Images/Color | 10 | 0 | 0 | 10 | 0 |
 | 8 Window/UI | 6 | 0 | 0 | 6 | 0 |
 | 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **114** | **57** | **12** | **45** | **0** |
+| **Total** | **114** | **57** | **17** | **40** | **0** |
 
 ## Progress log
 
@@ -253,6 +253,26 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   (left/right, shrink-to-fit widths, block avoidance). P6-LAYOUT-009 and
   P6-LAYOUT-006 are now `Implemented`/`Partial`.
 
+- **2026-10-28 (Phase 6 text/overflow):** Added a `TextShaper` interface with a
+  `SimpleShaper` using average advances, letter-spacing, and word-spacing; box
+  measurement now uses the shaper. Added scroll-overflow metadata
+  (`ScrollWidth`/`ScrollHeight`) covering normal, nested, and positioned
+  overflow. P6-LAYOUT-012 and P6-LAYOUT-013 are now `Implemented`/`Partial`
+  (real font matching/kerning and scroll containers remain).
+
+- **2026-10-28 (Phase 6 logical/bidi):** Added logical-property mapping for
+  margin/padding/inset/border longhands and inline-/block-size using
+  `writing-mode` and `direction`, plus logical shorthand expansion. Added bidi
+  run segmentation for mixed-direction text using `x/text/unicode/bidi`. Vertical
+  layout itself and inline-run visual reordering remain refinements, so
+  P6-LAYOUT-010 and P6-LAYOUT-011 are `Implemented`/`Partial`.
+
+- **2026-10-28 (Phase 6 incremental cache):** Added `DocumentLayout`, a
+  mutation-versioned box-tree/layout cache that reuses geometry when nothing
+  changed, rebuilds on DOM mutations, and invalidates on viewport changes.
+  P6-LAYOUT-014 is `Implemented`/`Partial`: dirty-subtree reflow and paint
+  damage tracking remain refinements. All Phase 6 tasks are now implemented.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -356,11 +376,11 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | P6-LAYOUT-007 | Positioning | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-008 | Flexbox | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-009 | Grid | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-010 | Writing modes and logical properties | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-011 | Bidi and text runs | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-012 | Text metrics and simple shaping | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-013 | Overflow and scrolling | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-014 | Incremental layout | Planned | - | - | N/A | - |
+| P6-LAYOUT-010 | Writing modes and logical properties | Implemented | Y | P | Partial | - |
+| P6-LAYOUT-011 | Bidi and text runs | Implemented | Y | P | Partial | - |
+| P6-LAYOUT-012 | Text metrics and simple shaping | Implemented | Y | P | Partial | - |
+| P6-LAYOUT-013 | Overflow and scrolling | Implemented | Y | P | Partial | - |
+| P6-LAYOUT-014 | Incremental layout | Implemented | Y | Y | N/A | - |
 
 ## Phase 7 — Painting, Fonts, Images, Color
 

@@ -4,8 +4,8 @@
 > implemented today, what is partial, and where to start, see
 > [`handover.md`](./handover.md). As of 2026-10-28 the implemented packages include the
 > URL, encoding, HTML-parsing/`dom`, HTTP/TLS/DNS, cache, cookie, Phase 4 CSS
-> parser/CSSOM layers, the Phase 5 `styles` engine, and the initial Phase 6 `layouts`
-> box/block/inline engine; the remaining formatting contexts, rendering, windowing, and
+> parser/CSSOM layers, the Phase 5 `styles` engine, and the Phase 6 `layouts` engine
+> (box tree, block/inline/table/flex/grid, floats, positioning). Rendering, windowing, and
 > JavaScript remain design targets.
 
 ## 1. Scope
