@@ -30,11 +30,11 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 > gradients render, real fonts are matched/shaped/cached, and stacking,
 > z-order, opacity, 2D transforms, and `<img>` replaced content paint. The
 > `@font-face`, SVG, gradients, borders/images, color conversion/gamut mapping,
-> the compositor, and the reftest comparator are implemented. Phase 7 has no
-> `Planned` tasks: 10 are `Verified`, and 3 retain partial conformance for 3D
-> transforms/feature shaping/WOFF2 and `font-display` timing. Totals:
-> **80 Verified, 8 Implemented/Partial, 29 Planned, 0 Blocked**. For a narrative
-> summary see [`handover.md`](./handover.md).
+> the compositor, the reftest comparator, X11 input/clipboard/SHM, and the
+> browser shell are implemented. Phase 7 has no `Planned` tasks (10 Verified,
+> 3 Partial); Phase 8 has 5 Verified and 1 Partial (browsing-context edges).
+> Totals: **85 Verified, 8 Implemented/Partial, 24 Planned, 0 Blocked**. For a
+> narrative summary see [`handover.md`](./handover.md).
 
 ## Summary
 
@@ -48,11 +48,11 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
 | 6 Layout | 14 | 11 | 3 | 0 | 0 |
 | 7 Paint/Fonts/Images/Color | 13 | 10 | 3 | 0 | 0 |
-| 8 Window/UI | 6 | 0 | 1 | 5 | 0 |
+| 8 Window/UI | 6 | 5 | 1 | 0 | 0 |
 | 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **117** | **80** | **8** | **29** | **0** |
+| **Total** | **117** | **85** | **8** | **24** | **0** |
 
 ## Progress log
 
@@ -513,6 +513,20 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   P7-FONT-003/004 (WOFF2/Brotli, font-display timing, OpenType feature
   application) remain `Implemented/Partial` with those dependencies recorded.
 
+- **2026-10-28 (Phase 8, X11 input/clipboard/SHM and browser shell):** Added
+  X11 key/pointer events with keyboard-mapping/keycode conversion, modifier
+  state, and an `InputWindow` event channel; ICCCM CLIPBOARD ownership,
+  SelectionRequest/Notify handling, and cross-client clipboard reads; MIT-SHM
+  detection, SysV segment attach/detach, banded `ShmPutImage`, damage-aware
+  uploads, and PutImage fallback. Added `browsers` (tabs, navigation/history,
+  session restore), `shells` (rasterized tab strip/omnibox/status/privacy
+  chrome, input routing, 60 Hz dirty-frame loop), and the interactive
+  `cmd/netsurf` executable. Added key/pointer, clipboard, SHM/GetImage, damage,
+  browser-model, shell-render, and headless interaction tests plus SHM
+  benchmarks. P8-X11-001/002/003, P8-SHELL-001/003 are `Verified`;
+  P8-SHELL-002 is `Implemented/Partial` for the full HTML browsing-context
+  model (opener/iframe/same-document navigation).
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -644,12 +658,12 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
 |---|---|---|---|---|---|---|
-| P8-X11-001 | X11 connection and window | WIP | Y | P | N/A | - |
-| P8-X11-002 | X11 input and clipboard | Planned | - | - | Unassessed | - |
-| P8-X11-003 | MIT-SHM surface upload | Planned | - | - | Unassessed | - |
-| P8-SHELL-001 | Browser chrome | Planned | - | - | N/A | - |
-| P8-SHELL-002 | Tab/session/navigation model | Planned | - | - | Unassessed | - |
-| P8-SHELL-003 | Event loop and input routing | Planned | - | - | N/A | - |
+| P8-X11-001 | X11 connection and window | Verified | Y | Y | N/A | - |
+| P8-X11-002 | X11 input and clipboard | Verified | Y | Y | N/A | - |
+| P8-X11-003 | MIT-SHM surface upload | Verified | Y | Y | N/A | - |
+| P8-SHELL-001 | Browser chrome | Verified | Y | Y | N/A | - |
+| P8-SHELL-002 | Tab/session/navigation model | Implemented | Y | Y | Partial | - |
+| P8-SHELL-003 | Event loop and input routing | Verified | Y | Y | N/A | - |
 
 ## Phase 9 — Process Architecture and Sandboxing
 

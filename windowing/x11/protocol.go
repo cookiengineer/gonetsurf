@@ -32,18 +32,26 @@ const (
 
 const (
 	eventMaskKeyPress        = 1 << 0
+	eventMaskKeyRelease      = 1 << 1
 	eventMaskButtonPress     = 1 << 2
+	eventMaskButtonRelease   = 1 << 3
+	eventMaskPointerMotion   = 1 << 6
+	eventMaskButtonMotion    = 1 << 13
 	eventMaskExposure        = 1 << 15
 	eventMaskStructureNotify = 1 << 17
+	eventMaskFocusChange     = 1 << 21
 	eventMaskPropertyChange  = 1 << 22
 )
 
 const (
-	eventExpose          = 12
-	eventDestroyNotify   = 17
-	eventConfigureNotify = 22
-	eventClientMessage   = 33
-	eventGeneric         = 35
+	eventExpose           = 12
+	eventDestroyNotify    = 17
+	eventConfigureNotify  = 22
+	eventSelectionClear   = 29
+	eventSelectionRequest = 30
+	eventSelectionNotify  = 31
+	eventClientMessage    = 33
+	eventGeneric          = 35
 )
 
 const (
@@ -253,6 +261,8 @@ type setupInfo struct {
 	resourceMask     uint32
 	imageByteOrder   uint8
 	maxRequestLength uint16
+	minKeycode       uint8
+	maxKeycode       uint8
 	screens          []screenInfo
 	formats          []pixmapFormat
 }
@@ -284,6 +294,8 @@ func readSetup(reader io.Reader) (*setupInfo, error) {
 		resourceMask:     binary.LittleEndian.Uint32(body[8:12]),
 		imageByteOrder:   body[22],
 		maxRequestLength: binary.LittleEndian.Uint16(body[18:20]),
+		minKeycode:       body[26],
+		maxKeycode:       body[27],
 	}
 	vendorLength := int(binary.LittleEndian.Uint16(body[16:18]))
 	screenCount := int(body[20])

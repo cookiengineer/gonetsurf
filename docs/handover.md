@@ -29,16 +29,17 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
 | 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (11 Verified, 3 Partial for Phase 7 paint/font residuals) |
 | 7 | Paint/fonts/images/color | **Done** (10 Verified, 3 Partial with recorded dependencies; no Planned tasks) |
-| 8 | X11 window/UI shell | **Started** (X11 window/presenter WIP; input and SHM pending) |
+| 8 | X11 window/UI shell | **Done** (5 Verified, 1 Partial for full browsing-context edges) |
 | 9–10 | Process sandbox/JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **80 Verified, 8 Implemented/Partial, 29 Planned, 0 Blocked**. There are no open
+Totals: **85 Verified, 8 Implemented/Partial, 24 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
-There is **no full browser executable yet**. Phases 0–6 are the engine's foundational
-libraries, Phase 7 now paints to PNG, and `netsurfctl show` can open a rendered page in
-a minimal X11 window. The first interactive windowed browser is expected after Phase 8.
+There is now an interactive browser executable: `go run ./cmd/netsurf [url]` opens an
+X11 window with a rasterized tab strip, omnibox, status/privacy bars, keyboard/mouse
+routing, clipboard support, and real page rendering. Phases 0–7 provide the engine;
+Phase 8's X11 input, clipboard, MIT-SHM, shell, and tab/session model are implemented.
 
 ## 3. Quick start
 
@@ -52,6 +53,7 @@ go run ./cmd/netsurfctl urlparse 'https://www.example.com:8443/a/b?x=1#f'
 go run ./cmd/netsurfctl layout page.html 800 600
 go run ./cmd/netsurfctl render page.html page.png 800 600   # headless paint
 go run ./cmd/netsurfctl show page.html 800 600               # paint in an X11 window
+go run ./cmd/netsurf https://example.com/                    # interactive browser shell
 go test ./urls/ -run TestURLParserConformance -v
 go test ./parsers/css/tokenizer/ -run TestTokenizerConformance -v
 go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
@@ -59,7 +61,7 @@ go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
 
 Current verification baseline:
 
-- 260 Go files across 45 packages, 108 test files, 478 test/fuzz/benchmark functions.
+- 273 Go files across 48 packages, 112 test files, 494 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -179,9 +181,16 @@ Current verification baseline:
   (`rendering/testdata/golden/page.png`) exercises backgrounds, borders, and
   real-font text.
 - X11: `windowing/x11` is a pure-Go X11 client (Xauthority MIT-MAGIC-COOKIE-1,
-  setup handshake, window/title/WM_DELETE, expose/configure handling, banded
-  PutImage). `netsurfctl show` opens a page in an X11 window; an integration test
-  runs when `DISPLAY` is set.
+  setup handshake, window/title/WM_DELETE, expose/configure handling, key/pointer
+  events with keyboard mapping, ICCCM clipboard, MIT-SHM uploads with damage
+  bands, and PutImage fallback). `netsurfctl show` opens a page in an X11 window;
+  integration tests run when `DISPLAY` is set.
+- Shell: `browsers` provides tabs, navigation/history, and session restore;
+  `shells` renders the tab strip/omnibox/status/privacy chrome with the
+  rasterizer and routes input in a 60 Hz dirty-frame loop. `cmd/netsurf` is the
+  interactive executable. Tests cover model navigation, shell rendering,
+  keyboard/mouse routing, headless Run/close, X11 input, clipboard across two
+  clients, SHM visual uploads, and damage presentation.
 - Matching benchmarks: `dom` selector matching and `styles.Matcher.Elements` are
   benchmarked; the DOM matcher also has a fuzz target.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
@@ -227,7 +236,9 @@ Current verification baseline:
 | `rendering/` | Surfaces, path rasterization, stroking, clipping, Porter-Duff compositing, paint traversal, color conversion, and headless render. |
 | `rendering/images/` | PNG/JPEG/GIF/WebP decoding, GIF animation metadata, EXIF orientation, and pixel/frame budgets. |
 | `rendering/fonts/` | Embedded/system font matching, text shaping, metrics, per-rune fallback, and a glyph mask cache. |
-| `windowing/` | Display/window abstraction, in-memory headless backend, and the pure-Go X11 presenter. |
+| `windowing/` | Display/window abstraction, input/clipboard events, headless backend, and the pure-Go X11 presenter with MIT-SHM. |
+| `browsers/` | Tab, navigation/history, and session model. |
+| `shells/` | Rasterized browser chrome, input routing, and the dirty-frame event loop. |
 | `internal/pixeltest/` | Golden/reference image comparison used by rendering tests. |
 | `protocols/http1/` | Custom HTTP/1.1 client: ordered headers, strict framing, chunked+trailers, pool, redirects, conditional/range. |
 | `protocols/tls/` | TLS 1.3 client config, ALPN, ECH field, GREASE values. |
@@ -241,7 +252,8 @@ Current verification baseline:
 | `caches/memory/` | Generic in-memory LRU. |
 | `storages/cookies/` | RFC 6265 partitioned jar, cross-site dependency graph, CNAME-cloaking tracking-session reset. |
 | `internal/safecall/` | Panic-to-error boundary helpers. |
-| `cmd/netsurfctl/` | `deps-check`, `urlparse`, `fetch`, `layout`, `render`, and `show` diagnostic commands. |
+| `cmd/netsurf/` | Interactive X11 browser shell. |
+| `cmd/netsurfctl/` | `deps-check`, `urlparse`, `fetch`, `layout`, `render`, `show`, and `reftest` diagnostic commands. |
 | `cmd/corpusgen/` | Refresh and normalize the vendored WPT, URL, HTML, and CSS corpora. |
 | `cmd/propertygen/` | Generate the property registry from pinned specs and WPT grammar assertions. |
 
@@ -361,22 +373,25 @@ Recorded in the relevant design docs under "Decisions":
 
 ## 8. Recommended next steps
 
-1. **Resolve the three Phase 7 partial dependencies.** Add a Brotli decoder
+1. **Finish Phase 8 polish.** Implement the full browsing-context model
+   (opener/iframe/same-document navigation), page scrolling, URL
+   autocomplete/search, tab drag/reorder, and a richer privacy dashboard.
+2. **Resolve the three Phase 7 partial dependencies.** Add a Brotli decoder
    for WOFF2, an async font/runtime loop for `font-display`, an OpenType
    GSUB/GPOS shaper (P10-TEXT-001) for feature/variation settings, and a
    projective 4x4 transform/compositor path for 3D/perspective transforms.
-2. **Vendor and run WPT reftests.** `netsurfctl reftest` is ready; add the WPT
+3. **Vendor and run WPT reftests.** `netsurfctl reftest` is ready; add the WPT
    reftest subset and CI thresholds, then close the remaining non-blocking
    gaps (`background-blend-mode`, SVG text/use/clipPath/mask/pattern/filter,
    animated image playback).
-3. **Start Phase 8.** Implement X11 input/clipboard/SHM and the shell/tab model
-   on top of the now-complete Phase 7 rendering pipeline.
-3. **Deepen CSS feature coverage** as Phase 6/7 need it: full CSSOM IDL surface, media
-   query serialization and remaining features, and cascade edge cases.
-4. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
+4. **Start Phase 9.** Move the renderer into the sandboxed process and the
+   network/storage into capability-scoped brokers.
+5. **Deepen CSS feature coverage** as later phases need it: full CSSOM IDL
+   surface, media query serialization, and cascade edge cases.
+6. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
    `protocols/tls/chrome` fork lands.
-5. **Fill the skeleton.** Create the remaining package directories with `doc.go`
-   stubs as their phases begin; avoid broad empty scaffolding ahead of need.
+7. **Fill the skeleton.** Create remaining package directories as their phases
+   begin; avoid broad empty scaffolding ahead of need.
 
 ## 9. Handover checklist
 

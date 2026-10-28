@@ -36,7 +36,9 @@ renderer, golden pixel harness, and reftest comparator are implemented
 (`netsurfctl render`, `netsurfctl reftest`), and a pure-Go X11 presenter opens
 rendered pages (`netsurfctl show`). Phase 7 is complete: 10 tasks Verified and
 3 Partial with recorded dependencies (WOFF2/Brotli, font-display timing,
-OpenType features, 3D transforms). Phase 8's X11 window slice is WIP; input and shared memory remain.
+OpenType features, 3D transforms). Phase 8 is implemented: X11 input, clipboard,
+MIT-SHM, tab/session model, rasterized browser chrome, and the `cmd/netsurf`
+interactive shell; P8-SHELL-002 remains Partial for full browsing-context edges.
 See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 

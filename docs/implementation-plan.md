@@ -30,7 +30,10 @@ work.
 > reftest runner are implemented (`netsurfctl render`, `netsurfctl reftest`),
 > and the early X11 presenter slice renders pages in a window (`netsurfctl show`).
 > Phase 7 is complete: 10 tasks Verified, 3 Partial with recorded dependencies
-> (WOFF2/Brotli, font-display timing, OpenType features, 3D transforms). See [`handover.md`](./handover.md) for the
+> (WOFF2/Brotli, font-display timing, OpenType features, 3D transforms). Phase 8
+> is implemented: X11 input, clipboard, MIT-SHM, browser tabs/session, rasterized
+> chrome, and the interactive `cmd/netsurf` shell; P8-SHELL-002 remains Partial
+> for full browsing-context edges. See [`handover.md`](./handover.md) for the
 > status and gaps.
 
 ## How to read a task

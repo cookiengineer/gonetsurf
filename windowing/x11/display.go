@@ -31,18 +31,26 @@ type Options struct {
 type Display struct {
 	options Options
 
-	writeMutex   sync.Mutex
-	stateMutex   sync.Mutex
-	conn         net.Conn
-	reader       *bufio.Reader
-	setup        *setupInfo
-	screen       screenInfo
-	visual       visualInfo
-	bitsPerPixel int
-	sequence     uint16
-	nextID       uint32
-	atoms        map[string]uint32
-	window       *Window
+	writeMutex     sync.Mutex
+	stateMutex     sync.Mutex
+	conn           net.Conn
+	reader         *bufio.Reader
+	setup          *setupInfo
+	screen         screenInfo
+	visual         visualInfo
+	bitsPerPixel   int
+	sequence       uint16
+	nextID         uint32
+	atoms          map[string]uint32
+	keymap         map[byte][]uint32
+	pendingPackets [][]byte
+
+	shmMutex     sync.Mutex
+	shmSupported bool
+	shmMajor     byte
+	shm          *shmSegment
+
+	window *Window
 }
 
 // New returns an unopened X11 display.
@@ -106,7 +114,7 @@ func (display *Display) Open() (windowing.Window, error) {
 	display.nextID = 1
 	display.atoms = make(map[string]uint32)
 
-	for _, atomName := range []string{"_NET_WM_NAME", "UTF8_STRING", "WM_PROTOCOLS", "WM_DELETE_WINDOW"} {
+	for _, atomName := range []string{"_NET_WM_NAME", "UTF8_STRING", "WM_PROTOCOLS", "WM_DELETE_WINDOW", "CLIPBOARD", "TARGETS", "TEXT", "_NETSURF_CLIPBOARD"} {
 		atom, err := display.internAtom(atomName)
 		if err != nil {
 			connection.Close()
@@ -134,7 +142,7 @@ func (display *Display) Open() (windowing.Window, error) {
 
 	const valueMaskBackground = 0x2
 	const valueMaskEvent = 0x800
-	eventMask := uint32(eventMaskKeyPress | eventMaskButtonPress | eventMaskExposure | eventMaskStructureNotify | eventMaskPropertyChange)
+	eventMask := uint32(eventMaskKeyPress | eventMaskKeyRelease | eventMaskButtonPress | eventMaskButtonRelease | eventMaskPointerMotion | eventMaskButtonMotion | eventMaskExposure | eventMaskStructureNotify | eventMaskPropertyChange | eventMaskFocusChange)
 	createRequest := createWindowRequest(
 		visual.depth,
 		windowID,
@@ -155,17 +163,26 @@ func (display *Display) Open() (windowing.Window, error) {
 		return nil, err
 	}
 
+	if err := display.loadKeyboardMapping(); err != nil {
+		connection.Close()
+		return nil, err
+	}
+	display.querySHM()
+
 	window := &Window{
-		display: display,
-		id:      windowID,
-		gc:      gcID,
-		width:   width,
-		height:  height,
-		title:   display.options.Title,
-		surface: rendering.NewSurface(width, height),
+		display:          display,
+		id:               windowID,
+		gc:               gcID,
+		width:            width,
+		height:           height,
+		title:            display.options.Title,
+		surface:          rendering.NewSurface(width, height),
+		events:           make(chan windowing.Event, 64),
+		clipboardPending: make(map[uint32]chan string),
 	}
 	window.setTitle(display.options.Title)
 	window.setProtocols()
+	display.enableSHM(width, height)
 	if _, err := display.sendRequest(mapWindowRequest(windowID)); err != nil {
 		connection.Close()
 		return nil, err
@@ -190,6 +207,17 @@ func (display *Display) EventLoop(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+		for len(display.pendingPackets) > 0 {
+			pending := display.pendingPackets[0]
+			display.pendingPackets = display.pendingPackets[1:]
+			closeRequested, err := window.handleEvent(pending)
+			if err != nil {
+				return err
+			}
+			if closeRequested {
+				return nil
+			}
 		}
 		connection.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
 		if _, err := reader.Peek(32); err != nil {
@@ -216,6 +244,7 @@ func (display *Display) Close() error {
 	display.stateMutex.Lock()
 	defer display.stateMutex.Unlock()
 	if display.window != nil {
+		display.disableSHM()
 		display.sendRequest(destroyWindowRequest(display.window.id))
 		display.sendRequest(freeGCRequest(display.window.gc))
 		display.window = nil
@@ -297,6 +326,13 @@ type Window struct {
 	title         string
 	surface       *rendering.Surface
 	resizeHandler func(width, height int)
+
+	events chan windowing.Event
+
+	clipboardMutex   sync.Mutex
+	clipboardText    string
+	clipboardOwned   bool
+	clipboardPending map[uint32]chan string
 }
 
 // Surface returns the window's rendering surface.
@@ -306,9 +342,8 @@ func (window *Window) Surface() *rendering.Surface {
 	return window.surface
 }
 
-// Present uploads the surface to the X server. Damage is currently ignored and
-// the whole surface is uploaded in row bands.
-func (window *Window) Present(image.Rectangle) error {
+// Present uploads the surface to the X server, using MIT-SHM when available.
+func (window *Window) Present(damage image.Rectangle) error {
 	window.mutex.Lock()
 	surface := window.surface
 	width := window.width
@@ -318,6 +353,28 @@ func (window *Window) Present(image.Rectangle) error {
 		return nil
 	}
 	converted := surface.Image()
+	startRow := 0
+	endRow := height
+	if !damage.Empty() {
+		clamped := damage.Intersect(image.Rect(0, 0, width, height))
+		if !clamped.Empty() {
+			startRow = clamped.Min.Y
+			endRow = clamped.Max.Y
+		}
+	}
+	if startRow < 0 {
+		startRow = 0
+	}
+	if endRow > height {
+		endRow = height
+	}
+	if startRow >= endRow {
+		return nil
+	}
+	if window.presentSHM(converted, width, height, startRow, endRow) {
+		return nil
+	}
+
 	maxRequestBytes := int(window.display.setup.maxRequestLength) * 4
 	if maxRequestBytes <= 0 {
 		maxRequestBytes = 65535 * 4
@@ -332,38 +389,21 @@ func (window *Window) Present(image.Rectangle) error {
 		rowsPerRequest = 1
 	}
 	masks := [3]uint32{window.display.visual.redMask, window.display.visual.greenMask, window.display.visual.blueMask}
-	for startRow := 0; startRow < height; startRow += rowsPerRequest {
-		endRow := startRow + rowsPerRequest
-		if endRow > height {
-			endRow = height
+	for bandStart := startRow; bandStart < endRow; bandStart += rowsPerRequest {
+		bandEnd := bandStart + rowsPerRequest
+		if bandEnd > endRow {
+			bandEnd = endRow
 		}
-		bandHeight := endRow - startRow
+		bandHeight := bandEnd - bandStart
 		data := make([]byte, bandHeight*stride)
-		offset := 0
-		for row := startRow; row < endRow; row++ {
-			for column := 0; column < width; column++ {
-				sourceOffset := row*converted.Stride + column*4
-				value := packPixel(
-					converted.Pix[sourceOffset],
-					converted.Pix[sourceOffset+1],
-					converted.Pix[sourceOffset+2],
-					masks,
-				)
-				if window.display.setup.imageByteOrder == 0 {
-					binary.LittleEndian.PutUint32(data[offset:], value)
-				} else {
-					binary.BigEndian.PutUint32(data[offset:], value)
-				}
-				offset += 4
-			}
-		}
+		encodeNRGBABand(converted, width, bandStart, bandEnd, window.display.setup.imageByteOrder, masks, data)
 		request := putImageRequest(
 			window.id,
 			window.gc,
 			uint16(width),
 			uint16(bandHeight),
 			0,
-			int16(startRow),
+			int16(bandStart),
 			window.display.visual.depth,
 			data,
 		)
@@ -431,6 +471,26 @@ func (window *Window) handleEvent(packet []byte) (bool, error) {
 	switch eventType {
 	case 0:
 		return false, nil
+	case eventKeyPressEvent:
+		window.handleKeyEvent(packet, true)
+	case eventKeyReleaseEvent:
+		window.handleKeyEvent(packet, false)
+	case eventButtonPressEvent:
+		window.handlePointerEvent(packet, windowing.EventMousePress)
+	case eventButtonReleaseEvent:
+		window.handlePointerEvent(packet, windowing.EventMouseRelease)
+	case eventMotionNotify:
+		window.handlePointerEvent(packet, windowing.EventMouseMove)
+	case eventFocusIn:
+		window.sendEvent(windowing.Event{Type: windowing.EventFocusIn})
+	case eventFocusOut:
+		window.sendEvent(windowing.Event{Type: windowing.EventFocusOut})
+	case eventSelectionClear:
+		window.handleSelectionClear(packet)
+	case eventSelectionRequest:
+		window.handleSelectionRequest(packet)
+	case eventSelectionNotify:
+		window.handleSelectionNotify(packet)
 	case eventExpose:
 		window.mutex.Lock()
 		width := window.width
@@ -452,8 +512,12 @@ func (window *Window) handleEvent(packet []byte) (bool, error) {
 			window.width = width
 			window.height = height
 			window.surface = rendering.NewSurface(width, height)
+			window.display.resizeSHM(width, height)
 		}
 		window.mutex.Unlock()
+		if resized {
+			window.sendEvent(windowing.Event{Type: windowing.EventResize, Width: width, Height: height})
+		}
 		if resized && handler != nil {
 			handler(width, height)
 		}
@@ -462,10 +526,12 @@ func (window *Window) handleEvent(packet []byte) (bool, error) {
 		protocolAtom := window.display.atoms["WM_PROTOCOLS"]
 		deleteAtom := window.display.atoms["WM_DELETE_WINDOW"]
 		if messageType == protocolAtom && binary.LittleEndian.Uint32(packet[16:20]) == deleteAtom {
+			window.sendEvent(windowing.Event{Type: windowing.EventClose})
 			return true, nil
 		}
 	case eventDestroyNotify:
 		if binary.LittleEndian.Uint32(packet[4:8]) == window.id {
+			window.sendEvent(windowing.Event{Type: windowing.EventClose})
 			return true, nil
 		}
 	case eventGeneric:

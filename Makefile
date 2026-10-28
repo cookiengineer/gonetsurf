@@ -74,6 +74,7 @@ bench:
 	$(GO) test ./layouts/ -run=^$$ -bench=. -benchtime=$(BENCHTIME)
 	$(GO) test ./rendering/ -run=^$$ -bench=. -benchtime=$(BENCHTIME)
 	$(GO) test ./rendering/fonts/ -run=^$$ -bench=. -benchtime=$(BENCHTIME)
+	$(GO) test ./windowing/x11/ -run=^$$ -bench=. -benchtime=$(BENCHTIME)
 
 # Re-fetch raw upstream test sources into testdata/upstream and regenerate the
 # normalized corpora consumed by the tests.

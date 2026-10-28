@@ -1,0 +1,65 @@
+// Command netsurf is the interactive browser shell.
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+
+	"gonetsurf/shells"
+	"gonetsurf/urls"
+	"gonetsurf/windowing/x11"
+)
+
+func main() {
+	var initial *urls.URL
+	if len(os.Args) > 1 {
+		parsed, err := urls.Parse(os.Args[1])
+		if err != nil {
+			if candidate, candidateErr := urls.Parse("https://" + os.Args[1]); candidateErr == nil {
+				parsed = candidate
+			} else {
+				fmt.Fprintln(os.Stderr, "netsurf:", err)
+				os.Exit(2)
+			}
+		}
+		initial = parsed
+	}
+
+	const width = 1024
+	const height = 768
+	shell := shells.New(width, height, initial)
+	display := x11.New(x11.Options{Width: width, Height: height, Title: "NetSurf"})
+	opened, err := display.Open()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "netsurf:", err)
+		os.Exit(1)
+	}
+	defer display.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	loopDone := make(chan error, 1)
+	go func() {
+		loopErr := display.EventLoop(ctx)
+		if loopErr != nil {
+			cancel()
+		}
+		loopDone <- loopErr
+	}()
+
+	runErr := shell.Run(ctx, opened)
+	cancel()
+	select {
+	case loopErr := <-loopDone:
+		if runErr == nil && loopErr != nil && !errors.Is(loopErr, context.Canceled) {
+			runErr = loopErr
+		}
+	default:
+	}
+	if runErr != nil && !errors.Is(runErr, context.Canceled) {
+		fmt.Fprintln(os.Stderr, "netsurf:", runErr)
+		os.Exit(1)
+	}
+}

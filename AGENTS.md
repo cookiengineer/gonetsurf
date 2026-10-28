@@ -21,6 +21,7 @@ go run ./cmd/netsurfctl urlparse <url>  # inspect a parsed URL
 go run ./cmd/netsurfctl layout page.html 800 600  # parse, style, and lay out a page
 go run ./cmd/netsurfctl render page.html page.png 800 600  # parse, style, lay out, and paint to PNG
 go run ./cmd/netsurfctl show page.html 800 600  # paint into an X11 window (requires DISPLAY)
+go run ./cmd/netsurf https://example.com/      # run the interactive browser shell (requires DISPLAY)
 ```
 
 Fuzzing (run briefly in CI, longer locally):

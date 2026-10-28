@@ -27,11 +27,13 @@ func New(width, height int, title string) *Display {
 func (display *Display) Open() (windowing.Window, error) {
 	if display.window == nil {
 		display.window = &Window{
-			width:   display.width,
-			height:  display.height,
-			title:   display.title,
-			surface: rendering.NewSurface(display.width, display.height),
-			scale:   1,
+			width:     display.width,
+			height:    display.height,
+			title:     display.title,
+			surface:   rendering.NewSurface(display.width, display.height),
+			scale:     1,
+			events:    make(chan windowing.Event, 64),
+			clipboard: "",
 		}
 	}
 	return display.window, nil
@@ -51,11 +53,13 @@ func (display *Display) Close() error {
 
 // Window is an in-memory window backed by a rendering surface.
 type Window struct {
-	width   int
-	height  int
-	title   string
-	surface *rendering.Surface
-	scale   float64
+	width     int
+	height    int
+	title     string
+	surface   *rendering.Surface
+	scale     float64
+	events    chan windowing.Event
+	clipboard string
 }
 
 // Surface returns the window's rendering surface.
@@ -86,4 +90,31 @@ func (window *Window) Scale() float64 {
 // Title returns the current window title.
 func (window *Window) Title() string {
 	return window.title
+}
+
+// Events returns the window event channel.
+func (window *Window) Events() <-chan windowing.Event {
+	return window.events
+}
+
+// Inject enqueues an event for tests or drivers.
+func (window *Window) Inject(event windowing.Event) {
+	if window.events == nil {
+		return
+	}
+	select {
+	case window.events <- event:
+	default:
+	}
+}
+
+// SetClipboard stores clipboard text locally.
+func (window *Window) SetClipboard(text string) error {
+	window.clipboard = text
+	return nil
+}
+
+// GetClipboard returns the local clipboard text.
+func (window *Window) GetClipboard(ctx context.Context) (string, error) {
+	return window.clipboard, nil
 }
