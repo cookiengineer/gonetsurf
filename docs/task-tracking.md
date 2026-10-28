@@ -15,14 +15,14 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 `Spec=N/A` is allowed only for non-normative tooling.
 
 > **Current state (2026-10-28):** Phases 0–5 are complete and verified. Phase 6
-> (layout) is fully implemented: box tree, box model, intrinsic sizing,
-> block/inline/table/flex/grid formatting, floats, positioning, logical
-> properties, vertical flow, bidi, text metrics, overflow/scroll, and a
-> mutation-versioned layout cache. P6-LAYOUT-001 is `Verified`; the other 13
-> Phase 6 tasks are `Implemented`/`Partial` pending broader reftest verification.
-> Phase 7 (painting) follows layout verification. Totals: **57 Verified, 17 Implemented/Partial,
-> 40 Planned, 0 Blocked**. For a narrative summary see
-> [`handover.md`](./handover.md).
+> (layout) has completed its layout-semantics pass: box sizing constraints,
+> block/inline formatting, tables, floats, positioning, flex/grid, writing
+> modes, bidi, text metrics, overflow/scrollports, and dirty-subtree reflow are
+> implemented and covered by unit, E2E, and conformance cases. P6-LAYOUT-007,
+> -012, and -013 remain `Partial` only for their Phase 7 paint/font residuals
+> (sticky paint, real font rasterization, scrollbar painting). Totals:
+> **67 Verified, 7 Implemented/Partial, 40 Planned, 0 Blocked**. For a narrative
+> summary see [`handover.md`](./handover.md).
 
 ## Summary
 
@@ -34,13 +34,13 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 3 HTML/DOM | 6 | 6 | 0 | 0 | 0 |
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
-| 6 Layout | 14 | 1 | 13 | 0 | 0 |
+| 6 Layout | 14 | 11 | 3 | 0 | 0 |
 | 7 Paint/Fonts/Images/Color | 10 | 0 | 0 | 10 | 0 |
 | 8 Window/UI | 6 | 0 | 0 | 6 | 0 |
 | 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **114** | **57** | **17** | **40** | **0** |
+| **Total** | **114** | **67** | **7** | **40** | **0** |
 
 ## Progress log
 
@@ -338,6 +338,20 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   collapse, flex wrapping) and added mixed LTR/RTL bidi run coverage with
   per-character visual text.
 
+- **2026-10-28 (Phase 6 verification close-out):** Completed the layout-semantics
+  pass. Added min/max height, percentage-height propagation, aspect-ratio,
+  fit-content(), collapsed-through and negative margin handling, line-based
+  inline layout with text-align/vertical-align/white-space/inline-block,
+  line-level bidi ordering, span-aware tables with border-collapse, stacked
+  floats and clearance, padding-box containing blocks/static positions, flex
+  column wrapping and main-axis clamps, grid implicit tracks/spans/alignment,
+  vertical block margins, generic-family metrics and pair kerning,
+  scrollbar-aware scrollports, and dirty-subtree reflow with clean-subtree
+  geometry reuse. Added `netsurfctl layout`, expanded the conformance harness
+  to 35 cases, and added full/incremental reflow benchmarks. P6-LAYOUT-002
+  through -006, -008 through -011, and -014 are now `Verified`; -007, -012,
+  and -013 remain `Partial` for their Phase 7 paint/font artifacts.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -433,19 +447,19 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | ID | Task | Status | UT | E2E | Spec | Bugs |
 |---|---|---|---|---|---|---|
 | P6-LAYOUT-001 | Box tree construction | Verified | Y | Y | Compliant | - |
-| P6-LAYOUT-002 | Box model and intrinsic sizing | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-003 | Block formatting context | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-004 | Inline formatting context | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-005 | Table formatting context | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-006 | Floats | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-007 | Positioning | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-008 | Flexbox | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-009 | Grid | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-010 | Writing modes and logical properties | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-011 | Bidi and text runs | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-012 | Text metrics and simple shaping | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-013 | Overflow and scrolling | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-014 | Incremental layout | Implemented | Y | Y | N/A | - |
+| P6-LAYOUT-002 | Box model and intrinsic sizing | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-003 | Block formatting context | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-004 | Inline formatting context | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-005 | Table formatting context | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-006 | Floats | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-007 | Positioning | Implemented | Y | Y | Partial | - |
+| P6-LAYOUT-008 | Flexbox | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-009 | Grid | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-010 | Writing modes and logical properties | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-011 | Bidi and text runs | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-012 | Text metrics and simple shaping | Implemented | Y | Y | Partial | - |
+| P6-LAYOUT-013 | Overflow and scrolling | Implemented | Y | Y | Partial | - |
+| P6-LAYOUT-014 | Incremental layout | Verified | Y | Y | N/A | - |
 
 ## Phase 7 — Painting, Fonts, Images, Color
 

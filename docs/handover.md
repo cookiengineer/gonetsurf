@@ -27,11 +27,11 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 3 | HTML parsing (`x/net/html`) + `dom` | **Done** (6/6 Verified) |
 | 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Done** (14/14 Verified) |
 | 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
-| 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (1 Verified, 13 Implemented/Partial) |
+| 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (11 Verified, 3 Partial for Phase 7 paint/font residuals) |
 | 7–10 | Paint/window/UI/process sandbox/JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **57 Verified, 17 Implemented/Partial, 40 Planned, 0 Blocked**. There are no open
+Totals: **67 Verified, 7 Implemented/Partial, 40 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is **no browser executable yet**. Phases 0–6 are the engine's foundational
@@ -46,6 +46,7 @@ gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts 
 go test ./... -count=1                  # unit + integration tests
 go run ./cmd/netsurfctl deps-check      # enforce the no-third-party policy
 go run ./cmd/netsurfctl urlparse 'https://www.example.com:8443/a/b?x=1#f'
+go run ./cmd/netsurfctl layout page.html 800 600
 go test ./urls/ -run TestURLParserConformance -v
 go test ./parsers/css/tokenizer/ -run TestTokenizerConformance -v
 go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
@@ -100,27 +101,28 @@ Current verification baseline:
 - Incremental restyle: DOM mutation versions and dirty-node tracking drive cached
   subtree restyles; `:has()` stylesheets fall back to a full restyle.
 - Layout: box-tree construction, anonymous block boxes, `display:contents`, box
-  model/sizing (including intrinsic min-/max-content and fit-content), block
-  layout with sibling and parent/child margin collapsing, simple inline line
-  layout with word wrapping, relative/absolute/fixed positioning, and basic
-  row/column flexbox with grow/shrink, wrapping, alignment, gaps, and order are
-  tested.
-  Basic table layout covers intrinsic column sizing, width distribution, row
-  heights, and cell layout. Basic grid layout covers explicit/`repeat()` tracks,
-  `fr` distribution, gaps, auto-placement, and explicit line placement. Floats
-  cover left/right placement, shrink-to-fit widths, and block avoidance. Text
-  measurement uses a pluggable `TextShaper` with font metrics (ascent/descent/
-  average advance), letter/word spacing, boxes
-  expose scroll-overflow metadata with clipping flags and clamped scroll offsets,
-  logical properties map through `writing-mode`/`direction`, basic vertical-mode
-  block and inline text flow is supported, text rotation metadata is recorded, sticky boxes
-  expose scroll-clamped offsets, bidi
-  text runs are segmented with mixed-run, RTL word, and per-character visual ordering,
-  and `DocumentLayout` reuses box trees for style-only mutations and rebuilds on
-  structural changes. Shorthand expansion
-  covers margin, padding, border, border components, overflow, flex, flex-flow,
-  gap, and logical edges. A 19-case layout conformance harness
-  (`layouts/testdata/cases.json`) passes all cases.
+  model/sizing (min/max width and height, percentages, aspect-ratio,
+  `fit-content()`, intrinsic min-/max-content), block layout with positive,
+  negative, collapsed-through, sibling, and parent/child margin collapsing,
+  line-based inline formatting (wrapping, `text-align`, `vertical-align`,
+  `white-space`, inline-blocks), and line-level bidi ordering are tested.
+  Tables cover spans, column sizes, border-collapse, row groups, and cell
+  alignment. Floats cover side-by-side placement, clearance, shrink-to-fit
+  widths, and block avoidance. Positioning covers relative/absolute/fixed,
+  padding-box containing blocks, static-position fallback, and sticky offsets.
+  Flexbox covers row/column flow, wrapping, grow/shrink, gaps, order, alignment,
+  baselines, and min/max main sizes. Grid covers explicit/repeat/implicit/minmax
+  tracks, spans, auto-placement, item alignment, and percentage sizing. Text
+  measurement uses a pluggable `TextShaper` with generic-family metrics,
+  letter/word spacing, and pair kerning. Scroll containers expose
+  scrollbar-aware scrollports, clipping flags, and clamped scroll offsets.
+  Logical properties map through `writing-mode`/`direction`, vertical block
+  flow honors block-axis margins, and text rotation metadata is recorded.
+  `DocumentLayout` reuses clean subtree geometry for style-only mutations and
+  verifies incremental output against full layout. A 35-case layout conformance
+  harness (`layouts/testdata/cases.json`) passes all cases, and
+  `netsurfctl layout <file|url>` provides an end-to-end parse/style/layout
+  geometry dump.
 - Matching benchmarks: `dom` selector matching and `styles.Matcher.Elements` are
   benchmarked; the DOM matcher also has a fuzz target.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
@@ -162,7 +164,7 @@ Current verification baseline:
 | `parsers/css/nesting/` | CSS Nesting parsing and `&` resolution. |
 | `dom/` | Namespace-aware mutable DOM: nodes, documents, attributes, queries, templates, shadow scaffolding, sandbox flags. |
 | `styles/` | Indexed selector matcher, UA stylesheet, presentational hints, and the style-resolution engine. |
-| `layouts/` | Box-tree construction, box model, block layout, and simple inline line layout. |
+| `layouts/` | Box tree, formatting contexts, sizing, positioning, text metrics, overflow, and incremental layout. |
 | `protocols/http1/` | Custom HTTP/1.1 client: ordered headers, strict framing, chunked+trailers, pool, redirects, conditional/range. |
 | `protocols/tls/` | TLS 1.3 client config, ALPN, ECH field, GREASE values. |
 | `protocols/dns/` | DNS codec (compression), caching resolver, special-use names, DoH, DoT. |
@@ -175,7 +177,7 @@ Current verification baseline:
 | `caches/memory/` | Generic in-memory LRU. |
 | `storages/cookies/` | RFC 6265 partitioned jar, cross-site dependency graph, CNAME-cloaking tracking-session reset. |
 | `internal/safecall/` | Panic-to-error boundary helpers. |
-| `cmd/netsurfctl/` | `deps-check` and `urlparse` maintenance commands. |
+| `cmd/netsurfctl/` | `deps-check`, `urlparse`, `fetch`, and `layout` diagnostic commands. |
 | `cmd/corpusgen/` | Refresh and normalize the vendored WPT, URL, HTML, and CSS corpora. |
 | `cmd/propertygen/` | Generate the property registry from pinned specs and WPT grammar assertions. |
 
@@ -200,11 +202,13 @@ These are intentional, tracked gaps rather than surprises:
   implemented. Layout-specific used values are handled by `layouts`; percentage
   resolution against containing blocks, intrinsic sizing, and text metrics are present
   but several layout refinements remain partial.
-- **Layout is implemented but needs verification depth.** All 14 Phase 6 tasks are
-  implemented, but several are `Partial`: column flex wrapping, full baseline metrics,
-  sideways text orientation/rotation, mixed-run bidi line layout, real font
-  files/kerning/fallback, scrollbar/sticky paint integration, styled-table edge cases, and
-  dirty-subtree reflow (the current cache is style-only reuse plus full reflow). Phase 6 verification against the full reftest corpus is still ahead.
+- **Layout semantics are verified; three tasks retain Phase 7 residuals.**
+  P6-LAYOUT-007/012/013 remain `Partial` because sticky paint integration, real
+  font-file rasterization, and scrollbar painting belong to Phase 7. The layout
+  side implements sticky scroll-clamped offsets, generic-family metrics with
+  pair kerning, and scrollbar-aware scrollports. Full pixel reftests still need
+  the Phase 7 renderer; the current 35-case geometry harness is the layout
+  baseline.
 - **Incremental restyle is conservative.** Dirty nodes restyle their parent subtree;
   stylesheets using `:has()` trigger a full restyle because descendant changes can
   invalidate ancestors. Selector indexes are rebuilt on restyle.
@@ -271,12 +275,11 @@ Recorded in the relevant design docs under "Decisions":
 
 ## 8. Recommended next steps
 
-1. **Verify and deepen Phase 6.** Run layout reftests, add dirty-subtree reflow, and
-   refine column flex wrapping/full baselines, sideways text orientation, mixed-run bidi
-   line layout, real font shaping, and scrollbar/sticky paint.
-2. **Phase 7 — Painting.** After layout verification, add rasterization, backgrounds and
-   borders, images, fonts, gradients, color management, stacking/compositing, and the
-   headless pixel harness.
+1. **Phase 7 — Painting.** Add rasterization, backgrounds and borders, images, fonts,
+   gradients, color management, stacking/compositing, and the headless pixel harness.
+   This also closes the paint-side residuals in P6-LAYOUT-007/012/013.
+2. **Run pixel reftests.** Once painting exists, compare layout geometry and pixels
+   against the broader WPT reftest corpus.
 3. **Deepen CSS feature coverage** as Phase 6/7 need it: full CSSOM IDL surface, media
    query serialization and remaining features, and cascade edge cases.
 4. **Close the remaining Partial network task** (TLS GREASE/ECH) when the

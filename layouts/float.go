@@ -56,7 +56,109 @@ func (layout *Layout) layoutFloat(box *Box, containingX, containingY, containing
 	box.ContentX = box.X + borderLeft + paddingLeft
 	box.ContentY = box.Y + borderTop + paddingTop
 	layout.layoutFlexItemContent(box)
-	box.ContentHeight = resolveHeight(box.Style, box.ContentHeight, 0, verticalExtra)
+	box.ContentHeight = layout.resolveContentHeight(box, box.ContentHeight, 0, verticalExtra)
 	box.Height = box.ContentHeight + verticalExtra
 	return box.Y + box.Height + marginBottom
+}
+
+// positionFloat moves a laid-out float around earlier floats in the same
+// formatting context. Existing floats are examined in document order.
+func positionFloat(box *Box, existing []*Box, containingX, containingWidth float64) {
+	if box == nil || len(existing) == 0 {
+		return
+	}
+	baseX := box.X
+	baseY := box.Y
+	targetX := baseX
+	targetY := baseY
+	for attempts := 0; attempts <= len(existing)+1; attempts++ {
+		x := targetX
+		for _, other := range existing {
+			if !verticalOverlap(targetY, targetY+box.Height, other.Y, other.Y+other.Height) {
+				continue
+			}
+			horizontalOverlap := x < other.X+other.Width && x+box.Width > other.X
+			if !horizontalOverlap {
+				continue
+			}
+			if floatOf(box) == "right" || floatOf(box) == "inline-end" {
+				candidate := other.X - box.Width
+				if candidate < x {
+					x = candidate
+				}
+			} else {
+				candidate := other.X + other.Width
+				if candidate > x {
+					x = candidate
+				}
+			}
+		}
+		if x >= containingX && x+box.Width <= containingX+containingWidth {
+			targetX = x
+			break
+		}
+		lowest := targetY
+		for _, other := range existing {
+			if !verticalOverlap(targetY, targetY+box.Height, other.Y, other.Y+other.Height) {
+				continue
+			}
+			if bottom := other.Y + other.Height; bottom > lowest {
+				lowest = bottom
+			}
+		}
+		if lowest <= targetY {
+			break
+		}
+		targetY = lowest
+		targetX = baseX
+	}
+	if targetX != box.X || targetY != box.Y {
+		shiftBox(box, targetX-box.X, targetY-box.Y)
+	}
+}
+
+func verticalOverlap(firstTop, firstBottom, secondTop, secondBottom float64) bool {
+	return firstTop < secondBottom && secondTop < firstBottom
+}
+
+func floatOuterBottom(box *Box) float64 {
+	if box == nil {
+		return 0
+	}
+	return box.Y + box.Height + box.Margin.Bottom.Resolve(box.Width)
+}
+
+func clearOf(box *Box) string {
+	if box == nil || box.Style == nil {
+		return ""
+	}
+	value := strings.ToLower(strings.TrimSpace(box.Style.GetString("clear")))
+	switch value {
+	case "left", "right", "both", "inline-start", "inline-end":
+		return value
+	default:
+		return ""
+	}
+}
+
+func clearY(floats []*Box, clear string) float64 {
+	required := 0.0
+	for _, box := range floats {
+		side := floatOf(box)
+		switch {
+		case clear == "both":
+		case clear == "left" && side != "left" && side != "inline-start":
+			continue
+		case clear == "right" && side != "right" && side != "inline-end":
+			continue
+		case clear == "inline-start" && side != "left" && side != "inline-start":
+			continue
+		case clear == "inline-end" && side != "right" && side != "inline-end":
+			continue
+		}
+		if bottom := floatOuterBottom(box); bottom > required {
+			required = bottom
+		}
+	}
+	return required
 }

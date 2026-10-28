@@ -28,20 +28,42 @@ type FontMetrics struct {
 // MetricsForStyle returns simple metrics for the computed font style.
 func MetricsForStyle(style *styles.Style) FontMetrics {
 	fontSize := 16.0
+	family := ""
 	if style != nil {
 		if value, ok := parseComputedPixels(style.GetString("font-size")); ok && value > 0 {
 			fontSize = value
 		}
+		family = style.GetString("font-family")
 	}
+	return MetricsForFamily(family, fontSize)
+}
+
+// MetricsForFamily selects metrics by matching the first generic family in a
+// font-family list. Actual font files and glyph coverage arrive in Phase 7.
+func MetricsForFamily(fontFamily string, fontSize float64) FontMetrics {
 	advanceFactor := 0.5
-	if style != nil {
-		family := strings.ToLower(style.GetString("font-family"))
-		if strings.Contains(family, "monospace") || strings.Contains(family, "cursive") {
-			advanceFactor = 0.6
-		}
+	ascentFactor := 0.8
+	family := strings.ToLower(fontFamily)
+	switch {
+	case strings.Contains(family, "monospace"):
+		advanceFactor = 0.6
+		ascentFactor = 0.8
+	case strings.Contains(family, "cursive"):
+		advanceFactor = 0.55
+		ascentFactor = 0.75
+	case strings.Contains(family, "fantasy"):
+		advanceFactor = 0.55
+		ascentFactor = 0.78
+	case strings.Contains(family, "system-ui"):
+		advanceFactor = 0.5
+	case strings.Contains(family, "sans-serif"):
+		advanceFactor = 0.5
+	case strings.Contains(family, "serif"):
+		advanceFactor = 0.48
+		ascentFactor = 0.78
 	}
 	return FontMetrics{
-		Ascent:         fontSize * 0.8,
+		Ascent:         fontSize * ascentFactor,
 		Descent:        fontSize * 0.2,
 		LineGap:        0,
 		AverageAdvance: fontSize * advanceFactor,
@@ -100,7 +122,35 @@ func (layout *Layout) shapeText(text string, style *styles.Style) []Glyph {
 		shaper = SimpleShaper{}
 	}
 	metrics := MetricsForStyle(style)
-	return shaper.Shape(TextRun{Text: text, FontSize: fontSize, LetterSpacing: letterSpacing, WordSpacing: wordSpacing, AverageAdvance: metrics.AverageAdvance})
+	glyphs := shaper.Shape(TextRun{Text: text, FontSize: fontSize, LetterSpacing: letterSpacing, WordSpacing: wordSpacing, AverageAdvance: metrics.AverageAdvance})
+	if style != nil {
+		kerning := strings.ToLower(strings.TrimSpace(style.GetString("font-kerning")))
+		if kerning != "none" {
+			applyKerning(glyphs, fontSize, style.GetString("font-family"))
+		}
+	}
+	return glyphs
+}
+
+// kerningAdjustments are conservative pair tightenings in em units. They model
+// the most visible Latin pairs until real OpenType tables are loaded.
+var kerningAdjustments = map[string]float64{
+	"AV": -0.05, "VA": -0.05, "AT": -0.04, "TA": -0.04,
+	"LT": -0.05, "To": -0.04, "Ta": -0.03, "Te": -0.03,
+	"Wa": -0.04, "We": -0.03, "Yo": -0.04, "PA": -0.04,
+	"F,": -0.04, "F.": -0.04, "r.": -0.03, "ry": -0.02,
+}
+
+func applyKerning(glyphs []Glyph, fontSize float64, fontFamily string) {
+	if strings.Contains(strings.ToLower(fontFamily), "monospace") {
+		return
+	}
+	for index := 0; index+1 < len(glyphs); index++ {
+		pair := glyphs[index].Text + glyphs[index+1].Text
+		if adjustment, ok := kerningAdjustments[pair]; ok {
+			glyphs[index].Advance += adjustment * fontSize
+		}
+	}
 }
 
 // BidiRun is a directional run of text.

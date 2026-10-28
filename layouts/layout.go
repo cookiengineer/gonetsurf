@@ -2,8 +2,10 @@ package layouts
 
 import (
 	"math"
+	"strconv"
 	"strings"
 
+	"gonetsurf/dom"
 	"gonetsurf/parsers/css/parser"
 	cssvalues "gonetsurf/parsers/css/values"
 	"gonetsurf/styles"
@@ -15,6 +17,10 @@ type Size struct {
 	Percent bool
 	Auto    bool
 	Keyword string
+	// FitArgument is the optional argument of fit-content(<length-percentage>).
+	FitArgument    float64
+	FitPercent     bool
+	FitHasArgument bool
 }
 
 // Layout performs layout for a box tree.
@@ -25,6 +31,9 @@ type Layout struct {
 	MeasureText func(text string, style *styles.Style) (width, height float64)
 	// Shaper provides simple glyph advances when MeasureText is not set.
 	Shaper TextShaper
+	// Dirty restricts incremental layout to nodes needing reflow. A nil map
+	// means full layout.
+	Dirty map[*dom.Node]bool
 
 	positioned []*Box
 }
@@ -50,7 +59,15 @@ func (layout *Layout) layoutBlock(box *Box, containingX, containingY, containing
 	if box == nil || box.Style == nil {
 		return
 	}
+	box.LaidOut = false
+	box.ContainingX = containingX
+	box.ContainingY = containingY
+	box.ContainingWidth = containingWidth
+	box.ContainingHeight = containingHeight
 	if isOutOfFlow(box) {
+		box.StaticX = containingX
+		box.StaticY = containingY
+		box.HasStaticPosition = true
 		layout.positioned = append(layout.positioned, box)
 		return
 	}
@@ -70,6 +87,13 @@ func (layout *Layout) layoutBlock(box *Box, containingX, containingY, containing
 	box.Width = box.ContentWidth + horizontalExtra
 	box.X = containingX + marginLeft
 	box.ContentX = box.X + borderLeft + paddingLeft
+	verticalExtra := paddingTop + paddingBottom + borderTop + borderBottom
+	specifiedHeight, hasSpecifiedHeight := layout.specifiedContentHeight(box, containingHeight, verticalExtra)
+	if hasSpecifiedHeight {
+		box.ContentHeight = specifiedHeight
+	} else if ratio, ok := parseAspectRatio(box.Style.GetString("aspect-ratio")); ok && box.ContentWidth > 0 {
+		box.ContentHeight = box.ContentWidth / ratio
+	}
 	firstChild := firstBlockLevelChild(box)
 	lastChild := lastBlockLevelChild(box)
 	blockFormattingContext := establishesBlockFormattingContext(box)
@@ -91,8 +115,8 @@ func (layout *Layout) layoutBlock(box *Box, containingX, containingY, containing
 	} else if isTableContainer(box) {
 		layout.layoutTable(box)
 	} else if isFlexContainer(box) {
-		if !parseSize(box.Style.GetString("height")).Auto {
-			box.ContentHeight = resolveHeight(box.Style, 0, containingHeight, paddingTop+paddingBottom+borderTop+borderBottom)
+		if hasSpecifiedHeight {
+			box.ContentHeight = specifiedHeight
 		}
 		layout.layoutFlex(box)
 	} else if isVerticalWritingMode(box) {
@@ -102,7 +126,11 @@ func (layout *Layout) layoutBlock(box *Box, containingX, containingY, containing
 			layout.layoutInlineChildren(box)
 		}
 	} else if firstChild != nil {
-		layout.layoutBlockChildren(box, collapseTop, collapseBottom)
+		childContainingHeight := 0.0
+		if hasSpecifiedHeight {
+			childContainingHeight = box.ContentHeight
+		}
+		layout.layoutBlockChildren(box, collapseTop, collapseBottom, childContainingHeight)
 	} else {
 		layout.layoutInlineChildren(box)
 	}
@@ -112,32 +140,44 @@ func (layout *Layout) layoutBlock(box *Box, containingX, containingY, containing
 		box.Margin.Bottom = Length{Value: collapseMargins(parentBottom, childBottom)}
 	}
 
-	verticalExtra := paddingTop + paddingBottom + borderTop + borderBottom
-	contentHeight := resolveHeight(box.Style, box.ContentHeight, containingHeight, verticalExtra)
+	contentHeight := layout.resolveContentHeight(box, box.ContentHeight, containingHeight, verticalExtra)
 	box.ContentHeight = contentHeight
 	box.Height = contentHeight + verticalExtra
+	box.LaidOut = true
 }
 
-func (layout *Layout) layoutBlockChildren(box *Box, collapseFirstTop, collapseLastBottom bool) {
+func (layout *Layout) layoutBlockChildren(box *Box, collapseFirstTop, collapseLastBottom bool, containingHeight float64) {
 	cursorY := box.ContentY
-	previousBottom := 0.0
+	pendingMargin := 0.0
 	first := true
 	floatBottom := 0.0
+	floats := []*Box{}
 	lastChild := lastBlockLevelChild(box)
 	for _, child := range box.Children {
 		if isOutOfFlow(child) {
+			child.StaticX = box.ContentX
+			child.StaticY = cursorY
+			child.HasStaticPosition = true
 			layout.positioned = append(layout.positioned, child)
 			continue
 		}
 		if isFloat(child) {
-			bottom := layout.layoutFloat(child, box.ContentX, cursorY, box.ContentWidth)
-			if bottom > floatBottom {
+			layout.layoutFloat(child, box.ContentX, cursorY, box.ContentWidth)
+			positionFloat(child, floats, box.ContentX, box.ContentWidth)
+			floats = append(floats, child)
+			if bottom := floatOuterBottom(child); bottom > floatBottom {
 				floatBottom = bottom
 			}
 			continue
 		}
 		if !child.IsBlockLevel() {
 			continue
+		}
+		if clear := clearOf(child); clear != "" {
+			if required := clearY(floats, clear); required > cursorY {
+				cursorY = required
+				floatBottom = required
+			}
 		}
 		if floatBottom > cursorY {
 			cursorY = floatBottom
@@ -149,24 +189,70 @@ func (layout *Layout) layoutBlockChildren(box *Box, collapseFirstTop, collapseLa
 				collapsed = 0
 			}
 		} else {
-			collapsed = collapseMargins(previousBottom, marginTop)
+			collapsed = collapseMargins(pendingMargin, marginTop)
 		}
 		containingY := cursorY + collapsed - marginTop
-		layout.layoutBlock(child, box.ContentX, containingY, box.ContentWidth, 0)
-		cursorY = child.Y + child.Height
-		previousBottom = child.Margin.Bottom.Resolve(box.ContentWidth)
+		if layout.canReuseChild(child, box, containingY, containingHeight) {
+			deltaX := box.ContentX - child.ContainingX
+			deltaY := containingY - child.ContainingY
+			if deltaX != 0 || deltaY != 0 {
+				shiftBox(child, deltaX, deltaY)
+			}
+			child.ContainingX = box.ContentX
+			child.ContainingY = containingY
+			first = false
+			cursorY = child.Y + child.Height
+			pendingMargin = child.Margin.Bottom.Resolve(box.ContentWidth)
+			if collapseLastBottom && child == lastChild {
+				pendingMargin = 0
+			}
+			continue
+		}
+		layout.layoutBlock(child, box.ContentX, containingY, box.ContentWidth, containingHeight)
 		first = false
+		marginBottom := child.Margin.Bottom.Resolve(box.ContentWidth)
+		if isSelfCollapsingBlock(child) {
+			pendingMargin = collapseMargins(collapsed, marginBottom)
+			continue
+		}
+		cursorY = child.Y + child.Height
+		pendingMargin = marginBottom
 		if collapseLastBottom && child == lastChild {
-			previousBottom = 0
+			pendingMargin = 0
 		}
 	}
 	if !first {
-		cursorY += previousBottom
+		cursorY += pendingMargin
 	}
 	if floatBottom > cursorY {
 		cursorY = floatBottom
 	}
 	box.ContentHeight = math.Max(0, cursorY-box.ContentY)
+}
+
+// isSelfCollapsingBlock reports whether a block's own top and bottom margins
+// collapse through it. See CSS 2.2 §8.3.1.
+func isSelfCollapsingBlock(box *Box) bool {
+	if box == nil || box.Kind != BlockBox {
+		return false
+	}
+	height := parseSize(box.Style.GetString("height"))
+	if !height.Auto && height.Keyword == "" {
+		return false
+	}
+	if box.Border.Top.Resolve(box.ContentWidth) != 0 || box.Border.Bottom.Resolve(box.ContentWidth) != 0 {
+		return false
+	}
+	if box.Padding.Top.Resolve(box.ContentWidth) != 0 || box.Padding.Bottom.Resolve(box.ContentWidth) != 0 {
+		return false
+	}
+	for _, child := range box.Children {
+		if isOutOfFlow(child) || isFloat(child) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func firstBlockLevelChild(box *Box) *Box {
@@ -185,6 +271,32 @@ func lastBlockLevelChild(box *Box) *Box {
 		}
 	}
 	return nil
+}
+
+func (layout *Layout) isDirtyBox(box *Box) bool {
+	if layout.Dirty == nil {
+		return true
+	}
+	if box == nil || box.Node == nil {
+		return true
+	}
+	return layout.Dirty[box.Node]
+}
+
+func (layout *Layout) canReuseChild(child *Box, parent *Box, containingY, containingHeight float64) bool {
+	if layout.Dirty == nil || child == nil || !child.LaidOut {
+		return false
+	}
+	if layout.isDirtyBox(child) || isOutOfFlow(child) || isFloat(child) {
+		return false
+	}
+	if child.ContainingWidth != parent.ContentWidth || child.ContainingHeight != containingHeight {
+		return false
+	}
+	if child.ContainingX != parent.ContentX {
+		return false
+	}
+	return true
 }
 
 func establishesBlockFormattingContext(box *Box) bool {
@@ -215,60 +327,7 @@ func (layout *Layout) layoutInlineChildren(box *Box) {
 		layout.layoutVerticalInlineChildren(box)
 		return
 	}
-	items := []*Box{}
-	floatBottom := 0.0
-	for _, child := range box.Children {
-		if isOutOfFlow(child) {
-			layout.positioned = append(layout.positioned, child)
-			continue
-		}
-		if isFloat(child) {
-			bottom := layout.layoutFloat(child, box.ContentX, box.ContentY, box.ContentWidth)
-			if bottom > floatBottom {
-				floatBottom = bottom
-			}
-			continue
-		}
-		collectInlineBoxes(child, &items)
-	}
-	lineX := box.ContentX
-	lineY := box.ContentY
-	maxLineHeight := 0.0
-	wordBoxes := make([]*Box, 0, len(items))
-	for _, item := range items {
-		width, height := layout.measureText(item.Text, item.Style)
-		space := 0.0
-		if len(wordBoxes) > 0 {
-			space = item.FontSize * 0.25
-		}
-		if lineX > box.ContentX && lineX+space+width > box.ContentX+box.ContentWidth {
-			lineY += maxLineHeight
-			lineX = box.ContentX
-			maxLineHeight = 0
-			space = 0
-		}
-		lineX += space
-		item.X = lineX
-		item.Y = lineY
-		item.Width = width
-		item.Height = height
-		lineX += width
-		if height > maxLineHeight {
-			maxLineHeight = height
-		}
-		wordBoxes = append(wordBoxes, item)
-	}
-	if len(wordBoxes) > 0 {
-		lineY += maxLineHeight
-		box.Children = wordBoxes
-		for _, word := range wordBoxes {
-			word.Parent = box
-		}
-	}
-	if floatBottom > lineY {
-		lineY = floatBottom
-	}
-	box.ContentHeight = math.Max(0, lineY-box.ContentY)
+	layout.layoutInlineFormatting(box)
 }
 
 func collectInlineBoxes(box *Box, result *[]*Box) {
@@ -339,13 +398,25 @@ func (layout *Layout) resolveWidth(box *Box, containingWidth, marginHorizontal, 
 	switch {
 	case size.Keyword != "":
 		layout.computeIntrinsicWidths(box)
+		available := containingWidth - marginHorizontal - paddingBorderHorizontal
 		switch size.Keyword {
 		case "min-content":
 			contentWidth = box.IntrinsicMinWidth
 		case "max-content":
 			contentWidth = box.IntrinsicMaxWidth
+		case "fit-content":
+			if size.FitHasArgument {
+				argument := size.Value
+				if size.FitPercent {
+					argument = containingWidth * size.Value / 100
+				}
+				contentWidth = math.Max(box.IntrinsicMinWidth, math.Min(argument, box.IntrinsicMaxWidth))
+			} else {
+				contentWidth = math.Max(box.IntrinsicMinWidth, math.Min(available, box.IntrinsicMaxWidth))
+			}
+		case "stretch":
+			contentWidth = available
 		default:
-			available := containingWidth - marginHorizontal - paddingBorderHorizontal
 			contentWidth = math.Max(box.IntrinsicMinWidth, math.Min(available, box.IntrinsicMaxWidth))
 		}
 	case size.Auto:
@@ -456,6 +527,119 @@ func resolveHeight(style *styles.Style, contentHeight, containingHeight, padding
 	}
 }
 
+// specifiedContentHeight resolves a definite height. Auto heights and keyword
+// sizes are not definite for percentage resolution in descendants.
+func (layout *Layout) specifiedContentHeight(box *Box, containingHeight, verticalExtra float64) (float64, bool) {
+	size := parseSize(box.Style.GetString("height"))
+	if size.Auto || size.Keyword != "" {
+		return 0, false
+	}
+	if size.Percent && containingHeight <= 0 {
+		return 0, false
+	}
+	value := resolveHeight(box.Style, 0, containingHeight, verticalExtra)
+	value = layout.clampHeight(box, value, containingHeight, verticalExtra)
+	return value, true
+}
+
+// resolveContentHeight resolves the used content height, including the
+// preferred height from aspect-ratio and min/max height clamping.
+func (layout *Layout) resolveContentHeight(box *Box, contentHeight, containingHeight, verticalExtra float64) float64 {
+	heightSize := parseSize(box.Style.GetString("height"))
+	if heightSize.Auto && box.ContentWidth > 0 {
+		if ratio, ok := parseAspectRatio(box.Style.GetString("aspect-ratio")); ok {
+			contentHeight = box.ContentWidth / ratio
+		}
+	}
+	contentHeight = resolveHeight(box.Style, contentHeight, containingHeight, verticalExtra)
+	return layout.clampHeight(box, contentHeight, containingHeight, verticalExtra)
+}
+
+func (layout *Layout) clampHeight(box *Box, current, containingHeight, paddingBorderVertical float64) float64 {
+	borderBox := strings.EqualFold(strings.TrimSpace(box.Style.GetString("box-sizing")), "border-box")
+	resolve := func(text string) (float64, bool) {
+		size := parseSize(text)
+		if size.Auto || size.Keyword != "" {
+			return 0, false
+		}
+		value := size.Value
+		if size.Percent {
+			if containingHeight <= 0 {
+				return 0, false
+			}
+			value = containingHeight * size.Value / 100
+		}
+		if borderBox {
+			value -= paddingBorderVertical
+		}
+		return math.Max(0, value), true
+	}
+	if value, ok := resolve(box.Style.GetString("min-height")); ok {
+		current = math.Max(current, value)
+	}
+	if value, ok := resolve(box.Style.GetString("max-height")); ok {
+		current = math.Min(current, value)
+	}
+	return math.Max(0, current)
+}
+
+func parseAspectRatio(text string) (float64, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0, false
+	}
+	for _, prefix := range []string{"auto ", "auto/"} {
+		text = strings.TrimSpace(strings.TrimPrefix(text, prefix))
+	}
+	parts := strings.Split(text, "/")
+	if len(parts) != 2 {
+		return 0, false
+	}
+	width, ok := parseRatioNumber(parts[0])
+	if !ok {
+		return 0, false
+	}
+	height, ok := parseRatioNumber(parts[1])
+	if !ok || width <= 0 || height <= 0 {
+		return 0, false
+	}
+	return width / height, true
+}
+
+func parseRatioNumber(text string) (float64, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0, false
+	}
+	value := 0.0
+	seenDigit := false
+	for _, character := range text {
+		if character == '.' {
+			if !seenDigit {
+				return 0, false
+			}
+			continue
+		}
+		if character < '0' || character > '9' {
+			return 0, false
+		}
+		seenDigit = true
+		value = value*10 + float64(character-'0')
+	}
+	if !seenDigit {
+		return 0, false
+	}
+	// Re-parse with strconv semantics when a decimal point is present.
+	if strings.Contains(text, ".") {
+		parsed, err := strconv.ParseFloat(text, 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed, true
+	}
+	return value, true
+}
+
 func (layout *Layout) clampSize(box *Box, text string, current, containingWidth, paddingBorder float64, borderBox, minimum bool) float64 {
 	size := parseSize(text)
 	if size.Auto {
@@ -500,6 +684,15 @@ func parseSize(text string) Size {
 	if len(values) != 1 {
 		return Size{Auto: true}
 	}
+	if function, ok := values[0].(*parser.Function); ok && strings.EqualFold(function.Name, "fit-content") {
+		argument, ok := parseFitContentArgument(function.Value)
+		if !ok {
+			return Size{Auto: true}
+		}
+		argument.Keyword = "fit-content"
+		argument.FitHasArgument = true
+		return argument
+	}
 	numeric, ok := cssvalues.ParseNumeric(values[0])
 	if !ok {
 		return Size{Auto: true}
@@ -511,6 +704,26 @@ func parseSize(text string) Size {
 		return Size{Value: numeric.Number}
 	}
 	return Size{Auto: true}
+}
+
+func parseFitContentArgument(values []parser.ComponentValue) (Size, bool) {
+	for _, value := range values {
+		if parser.IsWhitespace(value) {
+			continue
+		}
+		numeric, ok := cssvalues.ParseNumeric(value)
+		if !ok {
+			return Size{}, false
+		}
+		if numeric.Unit == "%" {
+			return Size{Value: numeric.Number * 100, Percent: true}, true
+		}
+		if numeric.Kind == cssvalues.Length || (numeric.Kind == cssvalues.Other && numeric.Unit == "") {
+			return Size{Value: numeric.Number}, true
+		}
+		return Size{}, false
+	}
+	return Size{}, false
 }
 
 func parseComputedPixels(text string) (float64, bool) {
@@ -554,8 +767,10 @@ func (layout *Layout) layoutPositioned() {
 		cbX, cbY, cbWidth, cbHeight := 0.0, 0.0, layout.ViewportWidth, layout.ViewportHeight
 		if position != "fixed" {
 			if containing := positionedAncestor(box); containing != nil {
-				cbX, cbY = containing.ContentX, containing.ContentY
-				cbWidth, cbHeight = containing.ContentWidth, containing.ContentHeight
+				cbX = containing.X + containing.Border.Left.Resolve(containing.Width)
+				cbY = containing.Y + containing.Border.Top.Resolve(containing.Width)
+				cbWidth = containing.ContentWidth + containing.Padding.Horizontal(containing.Width)
+				cbHeight = containing.ContentHeight + containing.Padding.Vertical(containing.Width)
 			}
 		}
 		layout.layoutOutOfFlow(box, cbX, cbY, cbWidth, cbHeight)
@@ -606,11 +821,15 @@ func (layout *Layout) layoutOutOfFlow(box *Box, containingX, containingY, contai
 		box.X = containingX + left.Resolve(containingWidth) + marginLeft
 	} else if !right.Auto {
 		box.X = containingX + containingWidth - right.Resolve(containingWidth) - box.Width - marginRight
+	} else if box.HasStaticPosition {
+		box.X = box.StaticX + marginLeft
 	} else {
 		box.X = containingX + marginLeft
 	}
 	if !top.Auto {
 		box.Y = containingY + top.Resolve(containingWidth) + marginTop
+	} else if box.HasStaticPosition && bottom.Auto {
+		box.Y = box.StaticY + marginTop
 	} else {
 		box.Y = containingY + marginTop
 	}
@@ -625,7 +844,7 @@ func (layout *Layout) layoutOutOfFlow(box *Box, containingX, containingY, contai
 		}
 	}
 	if hasBlockChildren {
-		layout.layoutBlockChildren(box, false, false)
+		layout.layoutBlockChildren(box, false, false, 0)
 	} else {
 		layout.layoutInlineChildren(box)
 	}
@@ -633,7 +852,7 @@ func (layout *Layout) layoutOutOfFlow(box *Box, containingX, containingY, contai
 	if heightSize.Auto && !top.Auto && !bottom.Auto {
 		contentHeight = math.Max(0, containingHeight-top.Resolve(containingWidth)-bottom.Resolve(containingWidth)-marginTop-marginBottom-verticalExtra)
 	} else {
-		contentHeight = resolveHeight(box.Style, contentHeight, containingHeight, verticalExtra)
+		contentHeight = layout.resolveContentHeight(box, contentHeight, containingHeight, verticalExtra)
 	}
 	box.ContentHeight = contentHeight
 	box.Height = contentHeight + verticalExtra
@@ -661,7 +880,7 @@ func (layout *Layout) applyRelativeOffsets(box *Box) {
 		return
 	}
 	position := strings.ToLower(strings.TrimSpace(box.Style.GetString("position")))
-	if position == "relative" || position == "sticky" {
+	if position == "relative" {
 		left := parseOffset(box.Style.GetString("left"))
 		right := parseOffset(box.Style.GetString("right"))
 		top := parseOffset(box.Style.GetString("top"))
@@ -727,6 +946,8 @@ func (layout *Layout) computeOverflow(box *Box) (float64, float64) {
 	}
 	box.ScrollWidth = math.Max(0, maxRight-box.ContentX)
 	box.ScrollHeight = math.Max(0, maxBottom-box.ContentY)
+	box.HasHorizontalScrollbar = box.ScrollX && (box.ScrollWidth > box.ContentWidth || strings.EqualFold(strings.TrimSpace(box.Style.GetString("overflow-x")), "scroll"))
+	box.HasVerticalScrollbar = box.ScrollY && (box.ScrollHeight > box.ContentHeight || strings.EqualFold(strings.TrimSpace(box.Style.GetString("overflow-y")), "scroll"))
 	return maxRight, maxBottom
 }
 
@@ -758,16 +979,25 @@ func (layout *Layout) layoutVerticalBlockChildren(box *Box) {
 			continue
 		}
 		layout.layoutBlock(child, box.ContentX, box.ContentY, box.ContentWidth, 0)
+		marginStart := child.Margin.Left.Resolve(box.ContentWidth)
+		marginEnd := child.Margin.Right.Resolve(box.ContentWidth)
+		if rightToLeft {
+			marginStart = child.Margin.Right.Resolve(box.ContentWidth)
+			marginEnd = child.Margin.Left.Resolve(box.ContentWidth)
+		}
+		marginTop := child.Margin.Top.Resolve(box.ContentWidth)
 		desiredX := cursorX
 		if rightToLeft {
-			desiredX -= child.Width
-			cursorX -= child.Width
+			desiredX -= marginStart + child.Width
+			cursorX = desiredX - marginEnd
 		} else {
-			cursorX += child.Width
+			desiredX += marginStart
+			cursorX = desiredX + child.Width + marginEnd
 		}
-		shiftBox(child, desiredX-child.X, box.ContentY-child.Y)
-		if child.Height > maxHeight {
-			maxHeight = child.Height
+		shiftBox(child, desiredX-child.X, box.ContentY+marginTop-child.Y)
+		outerHeight := child.Height + marginTop + child.Margin.Bottom.Resolve(box.ContentWidth)
+		if outerHeight > maxHeight {
+			maxHeight = outerHeight
 		}
 	}
 	box.ContentHeight = maxHeight

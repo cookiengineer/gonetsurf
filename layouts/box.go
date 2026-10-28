@@ -92,15 +92,27 @@ type Box struct {
 	TextRotation float64
 	ZIndex       int
 
-	IntrinsicMinWidth  float64
-	IntrinsicMaxWidth  float64
-	ScrollWidth        float64
-	ScrollHeight       float64
-	ScrollLeft         float64
-	ScrollTop          float64
-	ClipX              bool
-	ClipY              bool
-	intrinsicsComputed bool
+	IntrinsicMinWidth      float64
+	IntrinsicMaxWidth      float64
+	ScrollWidth            float64
+	ScrollHeight           float64
+	ScrollLeft             float64
+	ScrollTop              float64
+	ClipX                  bool
+	ClipY                  bool
+	ScrollX                bool
+	ScrollY                bool
+	HasHorizontalScrollbar bool
+	HasVerticalScrollbar   bool
+	StaticX                float64
+	StaticY                float64
+	HasStaticPosition      bool
+	LaidOut                bool
+	ContainingX            float64
+	ContainingY            float64
+	ContainingWidth        float64
+	ContainingHeight       float64
+	intrinsicsComputed     bool
 }
 
 // IsBlockLevel reports whether the box participates in block layout.
@@ -214,6 +226,8 @@ func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, inherited *
 	box.ZIndex = parseZIndex(style.GetString("z-index"))
 	box.ClipX = clipsOverflow(style.GetString("overflow-x"))
 	box.ClipY = clipsOverflow(style.GetString("overflow-y"))
+	box.ScrollX = scrollsOverflow(style.GetString("overflow-x"))
+	box.ScrollY = scrollsOverflow(style.GetString("overflow-y"))
 	for _, child := range children {
 		child.Parent = box
 	}
@@ -285,11 +299,19 @@ func styleEdges(style *styles.Style, prefix string) Edges {
 
 func borderEdges(style *styles.Style) Edges {
 	return Edges{
-		Top:    parseLength(style.GetString("border-top-width")),
-		Right:  parseLength(style.GetString("border-right-width")),
-		Bottom: parseLength(style.GetString("border-bottom-width")),
-		Left:   parseLength(style.GetString("border-left-width")),
+		Top:    borderLength(style, "top"),
+		Right:  borderLength(style, "right"),
+		Bottom: borderLength(style, "bottom"),
+		Left:   borderLength(style, "left"),
 	}
+}
+
+func borderLength(style *styles.Style, side string) Length {
+	borderStyle := strings.ToLower(strings.TrimSpace(style.GetString("border-" + side + "-style")))
+	if borderStyle == "" || borderStyle == "none" || borderStyle == "hidden" {
+		return Length{}
+	}
+	return parseLength(style.GetString("border-" + side + "-width"))
 }
 
 func parseLength(text string) Length {
@@ -328,6 +350,15 @@ func textRotation(writingMode string) float64 {
 		return -90
 	default:
 		return 0
+	}
+}
+
+func scrollsOverflow(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "scroll", "auto":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -385,7 +416,7 @@ const ScrollbarThickness = 15.0
 
 // ScrollportWidth returns the content width available inside the scrollbars.
 func (box *Box) ScrollportWidth() float64 {
-	if box.ClipY {
+	if box.HasVerticalScrollbar {
 		return math.Max(0, box.ContentWidth-ScrollbarThickness)
 	}
 	return box.ContentWidth
@@ -393,7 +424,7 @@ func (box *Box) ScrollportWidth() float64 {
 
 // ScrollportHeight returns the content height available inside the scrollbars.
 func (box *Box) ScrollportHeight() float64 {
-	if box.ClipX {
+	if box.HasHorizontalScrollbar {
 		return math.Max(0, box.ContentHeight-ScrollbarThickness)
 	}
 	return box.ContentHeight
@@ -468,12 +499,12 @@ func (box *Box) scrollContainer() *Box {
 
 // MaxScrollLeft returns the maximum horizontal scroll offset.
 func (box *Box) MaxScrollLeft() float64 {
-	return math.Max(0, box.ScrollWidth-box.ContentWidth)
+	return math.Max(0, box.ScrollWidth-box.ScrollportWidth())
 }
 
 // MaxScrollTop returns the maximum vertical scroll offset.
 func (box *Box) MaxScrollTop() float64 {
-	return math.Max(0, box.ScrollHeight-box.ContentHeight)
+	return math.Max(0, box.ScrollHeight-box.ScrollportHeight())
 }
 
 // ScrollTo sets the scroll offsets, clamped to the scrollable range.

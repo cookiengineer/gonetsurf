@@ -19,14 +19,14 @@ cycles, `revert`), conditional rules, media queries, animations, and nesting. **
 (style resolution) is complete**: indexed selector matching, the UA stylesheet,
 presentational hints, cascade/inheritance, custom properties, relative-unit and
 per-property computed values, conditional integration, and incremental restyle are all
-implemented and tested. Phase 6 (layout) is implemented: box tree, box model, intrinsic
-sizing, block/inline/table/flex/grid formatting, floats, positioning, logical properties,
-basic vertical-mode block/inline flow with rotation metadata, sticky scroll-clamped offsets, bidi segmentation
-with mixed-run RTL word/per-character visual ordering,
-simple text shaping with font metrics,
-overflow/scroll metadata with clamped scroll offsets, row flex wrapping, and a mutation-versioned layout cache that reuses box trees for
-style-only changes all exist. A 19-case data-driven layout conformance harness passes; broader
-reftest verification and deeper refinements are next, followed by Phase 7 painting. See [`handover.md`](./handover.md) for the full handover and
+implemented and tested. Phase 6 (layout) has completed its layout-semantics pass:
+box sizing constraints, block/inline/table/flex/grid formatting, floats, positioning,
+logical properties, vertical flow, line-level bidi, generic-family text metrics and
+kerning, scrollbar-aware overflow, and dirty-subtree reflow all exist. A 35-case
+data-driven layout conformance harness passes, and `netsurfctl layout` exposes the full
+parse → style → layout pipeline for diagnostics. Three tasks (P6-LAYOUT-007/012/013)
+remain Partial only for their Phase 7 paint/font residuals. Phase 7 painting is next.
+See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 
 ## Documents

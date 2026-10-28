@@ -5,20 +5,27 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 
+	"gonetsurf/dom"
+	"gonetsurf/layouts"
+	"gonetsurf/parsers/css/cssom"
+	parsershtml "gonetsurf/parsers/html"
 	"gonetsurf/protocols/http1"
+	"gonetsurf/styles"
 	"gonetsurf/urls"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: netsurfctl <deps-check|urlparse|fetch> [args]")
+		fmt.Fprintln(os.Stderr, "usage: netsurfctl <deps-check|urlparse|fetch|layout> [args]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -36,6 +43,11 @@ func main() {
 	case "fetch":
 		if err := fetch(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "fetch failed:", err)
+			os.Exit(1)
+		}
+	case "layout":
+		if err := layout(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "layout failed:", err)
 			os.Exit(1)
 		}
 	default:
@@ -146,4 +158,117 @@ func urlParse(arguments []string) error {
 	fmt.Printf("query:    %s\n", parsed.Search())
 	fmt.Printf("fragment: %s\n", parsed.Hash())
 	return nil
+}
+
+// layout parses an HTML file or URL, resolves styles, lays out the document,
+// and prints the resulting box geometry as JSON.
+func layout(arguments []string) error {
+	if len(arguments) != 1 && len(arguments) != 3 {
+		return fmt.Errorf("usage: netsurfctl layout <file|url|-> [viewport-width viewport-height]")
+	}
+	width := 800.0
+	height := 600.0
+	if len(arguments) == 3 {
+		parsedWidth, err := strconv.ParseFloat(arguments[1], 64)
+		if err != nil || parsedWidth <= 0 {
+			return fmt.Errorf("invalid viewport width %q", arguments[1])
+		}
+		parsedHeight, err := strconv.ParseFloat(arguments[2], 64)
+		if err != nil || parsedHeight <= 0 {
+			return fmt.Errorf("invalid viewport height %q", arguments[2])
+		}
+		width, height = parsedWidth, parsedHeight
+	}
+	source, documentURL, err := readLayoutSource(arguments[0])
+	if err != nil {
+		return err
+	}
+	document, err := parsershtml.Parse(source, parsershtml.ParseOptions{URL: documentURL})
+	if err != nil {
+		return err
+	}
+	engine := styles.NewEngine(document)
+	document.Node.Descendants(func(node *dom.Node) bool {
+		if node.Type != dom.ElementNode || node.Namespace != dom.NamespaceHTML || !strings.EqualFold(node.Data, "style") {
+			return true
+		}
+		engine.AddStylesheet(cssom.Parse(node.TextContent()))
+		return true
+	})
+	root := layouts.BuildDocument(document, engine)
+	layoutContext := layouts.New(width, height)
+	layoutContext.Layout(root)
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(buildLayoutBox(root))
+}
+
+func readLayoutSource(source string) ([]byte, *urls.URL, error) {
+	if source == "-" {
+		data, err := io.ReadAll(io.LimitReader(os.Stdin, 16<<20))
+		return data, nil, err
+	}
+	parsed, err := urls.Parse(source)
+	if err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") {
+		_, body, fetchErr := fetchBody(source)
+		if fetchErr != nil {
+			return nil, nil, fetchErr
+		}
+		return body, parsed, nil
+	}
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return nil, nil, err
+	}
+	return data, nil, nil
+}
+
+type layoutBoxJSON struct {
+	Tag           string          `json:"tag,omitempty"`
+	ID            string          `json:"id,omitempty"`
+	Class         string          `json:"class,omitempty"`
+	Text          string          `json:"text,omitempty"`
+	X             float64         `json:"x"`
+	Y             float64         `json:"y"`
+	Width         float64         `json:"width"`
+	Height        float64         `json:"height"`
+	ContentX      float64         `json:"contentX"`
+	ContentY      float64         `json:"contentY"`
+	ContentWidth  float64         `json:"contentWidth"`
+	ContentHeight float64         `json:"contentHeight"`
+	ScrollWidth   float64         `json:"scrollWidth,omitempty"`
+	ScrollHeight  float64         `json:"scrollHeight,omitempty"`
+	ClipX         bool            `json:"clipX,omitempty"`
+	ClipY         bool            `json:"clipY,omitempty"`
+	Children      []layoutBoxJSON `json:"children,omitempty"`
+}
+
+func buildLayoutBox(box *layouts.Box) layoutBoxJSON {
+	if box == nil {
+		return layoutBoxJSON{}
+	}
+	result := layoutBoxJSON{
+		Text:          box.Text,
+		X:             box.X,
+		Y:             box.Y,
+		Width:         box.Width,
+		Height:        box.Height,
+		ContentX:      box.ContentX,
+		ContentY:      box.ContentY,
+		ContentWidth:  box.ContentWidth,
+		ContentHeight: box.ContentHeight,
+		ScrollWidth:   box.ScrollWidth,
+		ScrollHeight:  box.ScrollHeight,
+		ClipX:         box.ClipX,
+		ClipY:         box.ClipY,
+	}
+	if box.Node != nil && box.Node.Type == dom.ElementNode {
+		result.Tag = strings.ToLower(box.Node.Data)
+		result.ID, _ = box.Node.GetAttribute("id")
+		result.Class, _ = box.Node.GetAttribute("class")
+	}
+	for _, child := range box.Children {
+		result.Children = append(result.Children, buildLayoutBox(child))
+	}
+	return result
 }

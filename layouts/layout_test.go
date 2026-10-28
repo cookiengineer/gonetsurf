@@ -214,6 +214,89 @@ func TestInlineLineLayout(t *testing.T) {
 	}
 }
 
+func TestInlineAlignmentAndAtomicBoxes(t *testing.T) {
+	document, body := testDocument()
+	centered := document.CreateElement("p")
+	centered.SetAttribute("class", "center")
+	centered.AppendChild(document.CreateTextNode("hello"))
+	right := document.CreateElement("p")
+	right.SetAttribute("class", "right")
+	right.AppendChild(document.CreateTextNode("hello"))
+	nowrap := document.CreateElement("p")
+	nowrap.SetAttribute("class", "nowrap")
+	nowrap.AppendChild(document.CreateTextNode("hello world"))
+	atomic := document.CreateElement("p")
+	atomic.SetAttribute("class", "atomic")
+	span := document.CreateElement("span")
+	span.SetAttribute("class", "block")
+	atomic.AppendChild(span)
+	body.AppendChild(centered)
+	body.AppendChild(right)
+	body.AppendChild(nowrap)
+	body.AppendChild(atomic)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; width:100px; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }
+		.center { text-align:center }
+		.right { text-align:right }
+		.nowrap { white-space:nowrap; width:50px }
+		.block { display:inline-block; width:20px; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	if got := findBox(root, centered).Children[0].X; got != 30 {
+		t.Errorf("centered x = %v, want 30", got)
+	}
+	if got := findBox(root, right).Children[0].X; got != 60 {
+		t.Errorf("right x = %v, want 60", got)
+	}
+	if got := findBox(root, nowrap).ContentHeight; math.Abs(got-19.2) > 1e-9 {
+		t.Errorf("nowrap height = %v, want 19.2", got)
+	}
+	atomicBox := findBox(root, atomic)
+	if len(atomicBox.Children) != 1 || atomicBox.Children[0] != findBox(root, span) {
+		t.Fatalf("atomic children = %#v", atomicBox.Children)
+	}
+	if got := findBox(root, span).Width; got != 20 {
+		t.Errorf("inline-block width = %v, want 20", got)
+	}
+	if got := findBox(root, span).Height; got != 10 {
+		t.Errorf("inline-block height = %v, want 10", got)
+	}
+}
+
+func TestInlineVerticalAlign(t *testing.T) {
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	paragraph.SetAttribute("class", "line")
+	top := document.CreateElement("span")
+	top.SetAttribute("class", "top")
+	middle := document.CreateElement("span")
+	middle.SetAttribute("class", "middle")
+	paragraph.AppendChild(top)
+	paragraph.AppendChild(middle)
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; width:100px; font-size:16px; line-height:20px; margin:0; padding:0; border:0 }
+		span { display:inline-block; width:10px; height:10px; margin:0; padding:0; border:0 }
+		.top { vertical-align:top }
+		.middle { vertical-align:middle }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	if got := findBox(root, top).Y; got != 0 {
+		t.Errorf("top aligned y = %v, want 0", got)
+	}
+	if got := findBox(root, middle).Y; got != 5 {
+		t.Errorf("middle aligned y = %v, want 5", got)
+	}
+}
+
 func TestIntrinsicWidths(t *testing.T) {
 	document, body := testDocument()
 	minElement := document.CreateElement("p")
@@ -260,6 +343,115 @@ func TestIntrinsicWidths(t *testing.T) {
 	}
 	if got := findBox(root, fitElement).ContentWidth; got != 60 {
 		t.Errorf("fit-content width = %v, want 60", got)
+	}
+}
+
+func TestHeightSizingConstraints(t *testing.T) {
+	document, body := testDocument()
+	parent := document.CreateElement("div")
+	parent.SetAttribute("class", "parent")
+	percentage := document.CreateElement("div")
+	percentage.SetAttribute("class", "percentage")
+	clamped := document.CreateElement("div")
+	clamped.SetAttribute("class", "clamped")
+	ratio := document.CreateElement("div")
+	ratio.SetAttribute("class", "ratio")
+	fit := document.CreateElement("p")
+	fit.SetAttribute("class", "fit")
+	fit.AppendChild(document.CreateTextNode("hello world"))
+	parent.AppendChild(percentage)
+	parent.AppendChild(clamped)
+	parent.AppendChild(ratio)
+	body.AppendChild(parent)
+	body.AppendChild(fit)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		div, p { display:block; margin:0; padding:0; border:0 }
+		.parent { width:200px; height:200px }
+		.percentage { height:50% }
+		.clamped { height:300px; min-height:50px; max-height:120px }
+		.ratio { width:100px; aspect-ratio:16 / 9 }
+		.fit { font-size:16px; line-height:19.2px; width:fit-content(100px) }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	if got := findBox(root, percentage).ContentHeight; got != 100 {
+		t.Errorf("percentage height = %v, want 100", got)
+	}
+	if got := findBox(root, clamped).ContentHeight; got != 120 {
+		t.Errorf("max-height clamp = %v, want 120", got)
+	}
+	if got := findBox(root, ratio).ContentHeight; math.Abs(got-56.25) > 1e-9 {
+		t.Errorf("aspect-ratio height = %v, want 56.25", got)
+	}
+	if got := findBox(root, fit).ContentWidth; got != 84 {
+		t.Errorf("fit-content() width = %v, want 84", got)
+	}
+}
+
+func TestMinHeightBorderBox(t *testing.T) {
+	document, body := testDocument()
+	target := document.CreateElement("div")
+	target.SetAttribute("class", "target")
+	body.AppendChild(target)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.target { display:block; box-sizing:border-box; height:10px; min-height:50px; padding:5px; margin:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	targetBox := findBox(root, target)
+	if targetBox.Height != 50 || targetBox.ContentHeight != 40 {
+		t.Errorf("border-box min-height = %v/%v, want 50/40", targetBox.Height, targetBox.ContentHeight)
+	}
+}
+
+func TestMarginCollapseThroughAndNegative(t *testing.T) {
+	document, body := testDocument()
+	container := document.CreateElement("div")
+	container.SetAttribute("class", "container")
+	empty := document.CreateElement("div")
+	empty.SetAttribute("class", "empty")
+	after := document.CreateElement("div")
+	after.SetAttribute("class", "after")
+	container.AppendChild(empty)
+	container.AppendChild(after)
+
+	negative := document.CreateElement("div")
+	negative.SetAttribute("class", "negative")
+	first := document.CreateElement("div")
+	first.SetAttribute("class", "first")
+	second := document.CreateElement("div")
+	second.SetAttribute("class", "second")
+	negative.AppendChild(first)
+	negative.AppendChild(second)
+	body.AppendChild(container)
+	body.AppendChild(negative)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		div { display:block; padding:0; border:0 }
+		.container { width:200px }
+		.empty { margin:20px 0 30px 0 }
+		.after { height:10px; margin:0 }
+		.first { height:20px; margin:10px 0 20px 0 }
+		.second { height:10px; margin:-30px 0 0 0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	containerBox := findBox(root, container)
+	if got := findBox(root, after).Y - containerBox.ContentY; got != 30 {
+		t.Errorf("collapsed-through after offset = %v, want 30", got)
+	}
+	negativeBox := findBox(root, negative)
+	if got := findBox(root, second).Y - negativeBox.ContentY; got != 10 {
+		t.Errorf("negative margin second offset = %v, want 10", got)
 	}
 }
 
@@ -439,6 +631,51 @@ func TestPositioning(t *testing.T) {
 	}
 	if got := findBox(root, container).ContentHeight; got != 100 {
 		t.Errorf("container content height = %v, want 100", got)
+	}
+}
+
+func TestPositioningContainingBlockAndStatic(t *testing.T) {
+	document, body := testDocument()
+	container := document.CreateElement("div")
+	container.SetAttribute("class", "container")
+	flow := document.CreateElement("div")
+	flow.SetAttribute("class", "flow")
+	absolute := document.CreateElement("div")
+	absolute.SetAttribute("class", "absolute")
+	static := document.CreateElement("div")
+	static.SetAttribute("class", "static")
+	sticky := document.CreateElement("div")
+	sticky.SetAttribute("class", "sticky")
+	container.AppendChild(flow)
+	container.AppendChild(absolute)
+	container.AppendChild(static)
+	body.AppendChild(container)
+	body.AppendChild(sticky)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		div { margin:0; border:0 }
+		.container { position:relative; width:200px; height:100px; padding:10px }
+		.flow { height:20px }
+		.absolute { position:absolute; left:0; top:0; width:10px; height:10px }
+		.static { position:absolute; width:10px; height:10px }
+		.sticky { position:sticky; top:5px; height:10px }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	if got := findBox(root, absolute).X; got != 0 {
+		t.Errorf("absolute containing-block x = %v, want 0", got)
+	}
+	if got := findBox(root, absolute).Y; got != 0 {
+		t.Errorf("absolute containing-block y = %v, want 0", got)
+	}
+	if got := findBox(root, static).Y; got != 30 {
+		t.Errorf("static position y = %v, want 30", got)
+	}
+	if got := findBox(root, sticky).Y; got != 120 {
+		t.Errorf("sticky flow y = %v, want 120", got)
 	}
 }
 
@@ -628,6 +865,97 @@ func TestTableLayout(t *testing.T) {
 	}
 }
 
+func TestTableSpans(t *testing.T) {
+	document, body := testDocument()
+	table := document.CreateElement("table")
+	table.SetAttribute("class", "table")
+	firstRow := document.CreateElement("tr")
+	spanned := document.CreateElement("td")
+	spanned.SetAttribute("id", "spanned")
+	spanned.SetAttribute("colspan", "2")
+	spanned.AppendChild(document.CreateTextNode("a"))
+	firstRow.AppendChild(spanned)
+	secondRow := document.CreateElement("tr")
+	left := document.CreateElement("td")
+	left.SetAttribute("id", "left")
+	left.AppendChild(document.CreateTextNode("a"))
+	right := document.CreateElement("td")
+	right.SetAttribute("id", "right")
+	right.AppendChild(document.CreateTextNode("b"))
+	secondRow.AppendChild(left)
+	secondRow.AppendChild(right)
+	table.AppendChild(firstRow)
+	table.AppendChild(secondRow)
+	body.AppendChild(table)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		table { display:table; width:100px; border-collapse:separate; margin:0; padding:0; border:0 }
+		tr { display:table-row }
+		td { display:table-cell; margin:0; padding:0; border:0; font-size:16px; line-height:19.2px }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	if got := findBox(root, spanned).Width; got != 100 {
+		t.Errorf("colspan width = %v, want 100", got)
+	}
+	if got := findBox(root, left).Width; got != 50 {
+		t.Errorf("left column width = %v, want 50", got)
+	}
+	if got := findBox(root, right).X; got != 50 {
+		t.Errorf("right column x = %v, want 50", got)
+	}
+}
+
+func TestTableRowSpanAndBorderCollapse(t *testing.T) {
+	document, body := testDocument()
+	table := document.CreateElement("table")
+	table.SetAttribute("class", "table")
+	firstRow := document.CreateElement("tr")
+	tall := document.CreateElement("td")
+	tall.SetAttribute("id", "tall")
+	tall.SetAttribute("rowspan", "2")
+	tall.AppendChild(document.CreateTextNode("a"))
+	firstRight := document.CreateElement("td")
+	firstRight.SetAttribute("id", "first-right")
+	firstRight.AppendChild(document.CreateTextNode("b"))
+	firstRow.AppendChild(tall)
+	firstRow.AppendChild(firstRight)
+	secondRow := document.CreateElement("tr")
+	secondRight := document.CreateElement("td")
+	secondRight.SetAttribute("id", "second-right")
+	secondRight.AppendChild(document.CreateTextNode("c"))
+	secondRow.AppendChild(secondRight)
+	table.AppendChild(firstRow)
+	table.AppendChild(secondRow)
+	body.AppendChild(table)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		table { display:table; border-collapse:collapse; margin:0; padding:0; border:0 }
+		tr { display:table-row }
+		td { display:table-cell; margin:0; padding:0; border:2px solid; font-size:16px; line-height:19.2px }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	if got := findBox(root, secondRight).X; got != 10 {
+		t.Errorf("rowspan second column x = %v, want 10", got)
+	}
+	if got := findBox(root, tall).Height; got != 42.4 {
+		t.Errorf("rowspan height = %v, want 42.4", got)
+	}
+	if got := findBox(root, table).Width; got != 20 {
+		t.Errorf("collapsed table width = %v, want 20", got)
+	}
+	if got := findBox(root, tall).ContentWidth; got != 8 {
+		t.Errorf("collapsed cell content width = %v, want 8", got)
+	}
+}
+
 func TestTableExplicitWidth(t *testing.T) {
 	document, body := testDocument()
 	table := document.CreateElement("table")
@@ -753,6 +1081,44 @@ func TestGridFrAndPlacement(t *testing.T) {
 	}
 }
 
+func TestGridImplicitTracksSpansAndAlignment(t *testing.T) {
+	document, body := testDocument()
+	grid := document.CreateElement("div")
+	grid.SetAttribute("class", "grid")
+	explicit := document.CreateElement("div")
+	explicit.SetAttribute("class", "explicit")
+	spanning := document.CreateElement("div")
+	spanning.SetAttribute("class", "spanning")
+	centered := document.CreateElement("div")
+	centered.SetAttribute("class", "centered")
+	grid.AppendChild(explicit)
+	grid.AppendChild(spanning)
+	grid.AppendChild(centered)
+	body.AppendChild(grid)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.grid { display:grid; width:120px; height:40px; grid-template-columns:minmax(40px, 1fr) minmax(40px, 1fr); grid-template-rows:20px 20px; column-gap:0; row-gap:0; justify-items:center; align-items:center; margin:0; padding:0; border:0 }
+		.explicit { grid-column-start:3; justify-self:start; width:20px; height:10px; margin:0; padding:0; border:0 }
+		.spanning { grid-column-start:span 2; justify-self:stretch; width:20px; height:10px; margin:0; padding:0; border:0 }
+		.centered { width:20px; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	if got := findBox(root, explicit).X; got != 120 {
+		t.Errorf("implicit column x = %v, want 120", got)
+	}
+	if got := findBox(root, spanning).Width; got != 120 {
+		t.Errorf("span width = %v, want 120", got)
+	}
+	centeredBox := findBox(root, centered)
+	if centeredBox.X != 20 || centeredBox.Y != 25 {
+		t.Errorf("centered grid item = (%v,%v), want (20,25)", centeredBox.X, centeredBox.Y)
+	}
+}
+
 func TestFloatLayout(t *testing.T) {
 	document, body := testDocument()
 	left := document.CreateElement("div")
@@ -786,6 +1152,44 @@ func TestFloatLayout(t *testing.T) {
 	}
 	if afterBox.Y != 20 {
 		t.Errorf("after y = %v, want 20", afterBox.Y)
+	}
+}
+
+func TestFloatStackingAndClear(t *testing.T) {
+	document, body := testDocument()
+	container := document.CreateElement("div")
+	container.SetAttribute("class", "container")
+	first := document.CreateElement("div")
+	first.SetAttribute("class", "first")
+	second := document.CreateElement("div")
+	second.SetAttribute("class", "second")
+	cleared := document.CreateElement("div")
+	cleared.SetAttribute("class", "cleared")
+	container.AppendChild(first)
+	container.AppendChild(second)
+	container.AppendChild(cleared)
+	body.AppendChild(container)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.container { display:block; width:200px; margin:0; padding:0; border:0 }
+		.first, .second { float:left; width:50px; height:20px; margin:0; padding:0; border:0 }
+		.cleared { clear:left; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	if got := findBox(root, second).X; got != 50 {
+		t.Errorf("second float x = %v, want 50", got)
+	}
+	if got := findBox(root, second).Y; got != 0 {
+		t.Errorf("second float y = %v, want 0", got)
+	}
+	if got := findBox(root, cleared).Y; got != 20 {
+		t.Errorf("cleared y = %v, want 20", got)
+	}
+	if got := findBox(root, container).Height; got != 30 {
+		t.Errorf("float container height = %v, want 30", got)
 	}
 }
 
@@ -908,6 +1312,100 @@ func TestDocumentLayoutCache(t *testing.T) {
 	}
 }
 
+func TestIncrementalReflowMatchesFullLayout(t *testing.T) {
+	document, body := testDocument()
+	first := document.CreateElement("p")
+	first.SetAttribute("class", "item first")
+	first.SetAttribute("id", "first")
+	first.AppendChild(document.CreateTextNode("hello"))
+	second := document.CreateElement("p")
+	second.SetAttribute("class", "item second")
+	second.SetAttribute("id", "second")
+	second.AppendChild(document.CreateTextNode("world"))
+	body.AppendChild(first)
+	body.AppendChild(second)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; width:100px; height:10px; margin:0; padding:0; border:0 }
+		.wide { width:200px; height:30px }
+	`)
+	cache := NewDocumentLayout(document, engine, 400, 600)
+	incremental := cache.Reflow()
+	secondBox := findBox(incremental, second)
+	first.AddClass("wide")
+	incremental = cache.Reflow()
+	if findBox(incremental, second) != secondBox {
+		t.Error("incremental reflow should reuse clean sibling boxes")
+	}
+	fullCache := NewDocumentLayout(document, engine, 400, 600)
+	full := fullCache.Reflow()
+	compareBoxGeometry(t, full, incremental)
+}
+
+func compareBoxGeometry(t *testing.T, full, incremental *Box) {
+	t.Helper()
+	if full == nil || incremental == nil {
+		if full != incremental {
+			t.Error("geometry trees differ in shape")
+		}
+		return
+	}
+	if math.Abs(full.X-incremental.X) > 1e-9 || math.Abs(full.Y-incremental.Y) > 1e-9 ||
+		math.Abs(full.Width-incremental.Width) > 1e-9 || math.Abs(full.Height-incremental.Height) > 1e-9 ||
+		math.Abs(full.ContentWidth-incremental.ContentWidth) > 1e-9 || math.Abs(full.ContentHeight-incremental.ContentHeight) > 1e-9 {
+		t.Errorf("geometry differs: full (%v,%v %vx%v) incremental (%v,%v %vx%v)",
+			full.X, full.Y, full.Width, full.Height, incremental.X, incremental.Y, incremental.Width, incremental.Height)
+	}
+	for index := range full.Children {
+		if index >= len(incremental.Children) {
+			t.Error("incremental tree has fewer children")
+			return
+		}
+		compareBoxGeometry(t, full.Children[index], incremental.Children[index])
+	}
+}
+
+func TestFlexColumnWrapAndMaxWidth(t *testing.T) {
+	document, body := testDocument()
+	column := document.CreateElement("div")
+	column.SetAttribute("class", "column")
+	columnItems := []*dom.Node{}
+	for index := 0; index < 3; index++ {
+		item := document.CreateElement("div")
+		item.SetAttribute("class", "column-item")
+		column.AppendChild(item)
+		columnItems = append(columnItems, item)
+	}
+	row := document.CreateElement("div")
+	row.SetAttribute("class", "row")
+	growing := document.CreateElement("div")
+	growing.SetAttribute("class", "growing")
+	row.AppendChild(growing)
+	body.AppendChild(column)
+	body.AppendChild(row)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.column { display:flex; flex-direction:column; flex-wrap:wrap; align-items:flex-start; width:100px; height:40px; margin:0; padding:0; border:0 }
+		.column-item { width:20px; height:30px; margin:0; padding:0; border:0 }
+		.row { display:flex; width:100px; height:20px; margin:0; padding:0; border:0 }
+		.growing { flex-grow:1; max-width:60px; height:20px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	for index, item := range columnItems {
+		box := findBox(root, item)
+		if box.X != float64(index*20) || box.Y != 0 {
+			t.Errorf("column wrap item %d = (%v,%v), want (%v,0)", index, box.X, box.Y, index*20)
+		}
+	}
+	if got := findBox(root, growing).Width; got != 60 {
+		t.Errorf("flex max-width = %v, want 60", got)
+	}
+}
+
 func TestFlexWrapAndBaseline(t *testing.T) {
 	document, body := testDocument()
 	flex := document.CreateElement("div")
@@ -987,16 +1485,19 @@ func TestScrollContainer(t *testing.T) {
 	if scroller.ScrollWidth != 100 || scroller.ScrollHeight != 40 {
 		t.Errorf("scroll size = %vx%v, want 100x40", scroller.ScrollWidth, scroller.ScrollHeight)
 	}
-	if scroller.MaxScrollLeft() != 50 || scroller.MaxScrollTop() != 20 {
-		t.Errorf("max scroll = %v/%v, want 50/20", scroller.MaxScrollLeft(), scroller.MaxScrollTop())
+	if !scroller.HasVerticalScrollbar || !scroller.HasHorizontalScrollbar {
+		t.Error("overflow:auto with overflow should expose scrollbars")
+	}
+	if scroller.MaxScrollLeft() != 65 || scroller.MaxScrollTop() != 35 {
+		t.Errorf("max scroll = %v/%v, want 65/35", scroller.MaxScrollLeft(), scroller.MaxScrollTop())
 	}
 	scroller.ScrollTo(100, 100)
-	if scroller.ScrollLeft != 50 || scroller.ScrollTop != 20 {
-		t.Errorf("clamped scroll = %v/%v, want 50/20", scroller.ScrollLeft, scroller.ScrollTop)
+	if scroller.ScrollLeft != 65 || scroller.ScrollTop != 35 {
+		t.Errorf("clamped scroll = %v/%v, want 65/35", scroller.ScrollLeft, scroller.ScrollTop)
 	}
 	scroller.ScrollBy(-10, -5)
-	if scroller.ScrollLeft != 40 || scroller.ScrollTop != 15 {
-		t.Errorf("relative scroll = %v/%v, want 40/15", scroller.ScrollLeft, scroller.ScrollTop)
+	if scroller.ScrollLeft != 55 || scroller.ScrollTop != 30 {
+		t.Errorf("relative scroll = %v/%v, want 55/30", scroller.ScrollLeft, scroller.ScrollTop)
 	}
 
 	document, body = testDocument()
@@ -1013,6 +1514,47 @@ func TestScrollContainer(t *testing.T) {
 	layout.Layout(root)
 	if findBox(root, visible).ClipX || findBox(root, visible).ClipY {
 		t.Error("overflow:visible should not clip")
+	}
+
+	document, body = testDocument()
+	hidden := document.CreateElement("div")
+	hidden.SetAttribute("class", "hidden")
+	hiddenChild := document.CreateElement("div")
+	hiddenChild.SetAttribute("class", "child")
+	hidden.AppendChild(hiddenChild)
+	fits := document.CreateElement("div")
+	fits.SetAttribute("class", "fits")
+	fitsChild := document.CreateElement("div")
+	fitsChild.SetAttribute("class", "small")
+	fits.AppendChild(fitsChild)
+	body.AppendChild(hidden)
+	body.AppendChild(fits)
+	engine = testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.hidden { display:block; width:50px; height:20px; overflow:hidden; margin:0; padding:0; border:0 }
+		.child { display:block; width:100px; height:40px; margin:0; padding:0; border:0 }
+		.fits { display:block; width:50px; height:20px; overflow:auto; margin:0; padding:0; border:0 }
+		.small { display:block; width:40px; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root = BuildDocument(document, engine)
+	layout = New(400, 600)
+	layout.Layout(root)
+	hiddenBox := findBox(root, hidden)
+	if !hiddenBox.ClipX || !hiddenBox.ClipY {
+		t.Error("overflow:hidden should clip")
+	}
+	if hiddenBox.HasHorizontalScrollbar || hiddenBox.HasVerticalScrollbar {
+		t.Error("overflow:hidden should not create scrollbars")
+	}
+	if hiddenBox.MaxScrollLeft() != 50 || hiddenBox.MaxScrollTop() != 20 {
+		t.Errorf("hidden max scroll = %v/%v, want 50/20", hiddenBox.MaxScrollLeft(), hiddenBox.MaxScrollTop())
+	}
+	fitsBox := findBox(root, fits)
+	if fitsBox.HasHorizontalScrollbar || fitsBox.HasVerticalScrollbar {
+		t.Error("overflow:auto without overflow should not reserve scrollbars")
+	}
+	if fitsBox.MaxScrollLeft() != 0 || fitsBox.MaxScrollTop() != 0 {
+		t.Errorf("fits max scroll = %v/%v, want 0/0", fitsBox.MaxScrollLeft(), fitsBox.MaxScrollTop())
 	}
 }
 
@@ -1068,6 +1610,70 @@ func TestFontMetrics(t *testing.T) {
 	width, _ := layout.measureText("ab", styleMap[paragraph])
 	if math.Abs(width-19.2) > 1e-9 {
 		t.Errorf("monospace width = %v, want 19.2", width)
+	}
+}
+
+func TestLogicalSizingAndVerticalMargins(t *testing.T) {
+	document, body := testDocument()
+	container := document.CreateElement("div")
+	container.SetAttribute("class", "vertical")
+	first := document.CreateElement("div")
+	first.SetAttribute("class", "first")
+	second := document.CreateElement("div")
+	second.SetAttribute("class", "second")
+	container.AppendChild(first)
+	container.AppendChild(second)
+	body.AppendChild(container)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.vertical { display:block; writing-mode:vertical-rl; inline-size:40px; block-size:60px; margin:0; padding:0; border:0 }
+		.first { width:20px; height:10px; margin:0; margin-block-start:10px; padding:0; border:0 }
+		.second { width:20px; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	containerBox := findBox(root, container)
+	if containerBox.Width != 60 || containerBox.Height != 40 {
+		t.Errorf("logical size = %vx%v, want 60x40", containerBox.Width, containerBox.Height)
+	}
+	if got := findBox(root, first).X; got != 30 {
+		t.Errorf("vertical margin-block-start x = %v, want 30", got)
+	}
+	if got := findBox(root, second).X; got != 10 {
+		t.Errorf("second vertical block x = %v, want 10", got)
+	}
+}
+
+func TestFontFamilyMetricsAndKerning(t *testing.T) {
+	if got := MetricsForFamily("serif", 16).AverageAdvance; math.Abs(got-7.68) > 1e-9 {
+		t.Errorf("serif advance = %v, want 7.68", got)
+	}
+	if got := MetricsForFamily("monospace", 16).AverageAdvance; got != 9.6 {
+		t.Errorf("monospace advance = %v, want 9.6", got)
+	}
+	document, body := testDocument()
+	kerned := document.CreateElement("p")
+	kerned.SetAttribute("class", "kerned")
+	plain := document.CreateElement("p")
+	plain.SetAttribute("class", "plain")
+	body.AppendChild(kerned)
+	body.AppendChild(plain)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; font-family:sans-serif; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }
+		.kerned { font-kerning:normal }
+		.plain { font-kerning:none }
+	`)
+	styleMap := engine.ComputeDocumentTree(document)
+	layout := New(400, 600)
+	kernedWidth, _ := layout.measureText("AV", styleMap[kerned])
+	plainWidth, _ := layout.measureText("AV", styleMap[plain])
+	if math.Abs(kernedWidth-15.2) > 1e-9 {
+		t.Errorf("kerned width = %v, want 15.2", kernedWidth)
+	}
+	if plainWidth != 16 {
+		t.Errorf("plain width = %v, want 16", plainWidth)
 	}
 }
 
@@ -1211,6 +1817,50 @@ func TestTextRotationMetadata(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestReplacedInlineSizing(t *testing.T) {
+	document, body := testDocument()
+	image := document.CreateElement("img")
+	image.SetAttribute("class", "image")
+	image.SetAttribute("width", "50")
+	image.SetAttribute("height", "25")
+	body.AppendChild(image)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	imageBox := findBox(root, image)
+	if imageBox == nil || imageBox.Width != 50 || imageBox.Height != 25 {
+		t.Errorf("replaced box = %#v", imageBox)
+	}
+}
+
+func TestBidiLineOrdering(t *testing.T) {
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	paragraph.SetAttribute("class", "rtl")
+	paragraph.AppendChild(document.CreateTextNode("\u05d0\u05d1 \u05d2\u05d3 \u05d4\u05d5"))
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; width:40px; direction:rtl; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	words := findBox(root, paragraph).Children
+	if len(words) != 3 {
+		t.Fatalf("bidi words = %#v", words)
+	}
+	if words[0].Text != "\u05d2\u05d3" || words[1].Text != "\u05d0\u05d1" || words[2].Text != "\u05d4\u05d5" {
+		t.Errorf("bidi line order = %q/%q/%q", words[0].Text, words[1].Text, words[2].Text)
+	}
+	if words[0].VisualText != "\u05d3\u05d2" || words[1].VisualText != "\u05d1\u05d0" {
+		t.Errorf("bidi visual order = %q/%q", words[0].VisualText, words[1].VisualText)
 	}
 }
 

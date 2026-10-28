@@ -11,9 +11,12 @@ import (
 )
 
 type trackSize struct {
-	size float64
-	flex float64
-	auto bool
+	size     float64
+	flex     float64
+	auto     bool
+	minSize  float64
+	maxSize  float64
+	hasRange bool
 }
 
 type gridItem struct {
@@ -87,6 +90,23 @@ func (layout *Layout) layoutGrid(box *Box) {
 	if len(columnWidths) == 0 {
 		columnWidths = []float64{box.ContentWidth}
 	}
+	for _, item := range items {
+		baseColumn := item.column
+		if item.explicit && baseColumn > 0 {
+			baseColumn--
+		}
+		required := baseColumn + item.columnSpan
+		for len(columnWidths) < required {
+			width := box.ContentWidth / float64(len(columnWidths)+1)
+			for len(columnAuto) < len(columnWidths)+1 {
+				columnAuto = append(columnAuto, 0)
+			}
+			if len(columnAuto) > len(columnWidths) && columnAuto[len(columnWidths)] > 0 {
+				width = columnAuto[len(columnWidths)]
+			}
+			columnWidths = append(columnWidths, width)
+		}
+	}
 	columnCount = len(columnWidths)
 	occupied := map[[2]int]bool{}
 	column := 0
@@ -117,8 +137,12 @@ func (layout *Layout) layoutGrid(box *Box) {
 			}
 			continue
 		}
-		item.columnSpan = 1
-		item.rowSpan = 1
+		if item.columnSpan < 1 {
+			item.columnSpan = 1
+		}
+		if item.rowSpan < 1 {
+			item.rowSpan = 1
+		}
 		for {
 			if column+item.columnSpan > columnCount {
 				row++
@@ -152,7 +176,7 @@ func (layout *Layout) layoutGrid(box *Box) {
 		item := &items[index]
 		width := trackSpanWidth(columnWidths, item.column, item.columnSpan, columnGap)
 		x := box.ContentX + trackOffset(columnWidths, item.column, columnGap)
-		layout.layoutGridItem(item.box, x, temporaryY, width)
+		layout.layoutGridItem(box, item.box, x, temporaryY, width)
 	}
 	rowCount := 0
 	for _, item := range items {
@@ -173,6 +197,21 @@ func (layout *Layout) layoutGrid(box *Box) {
 	for index := range items {
 		item := &items[index]
 		targetY := box.ContentY + trackOffset(resolvedRows, item.row, rowGap)
+		if item.rowSpan <= 1 && item.row < len(resolvedRows) {
+			rowHeight := resolvedRows[item.row]
+			switch gridAlignment(box, item.box, "align") {
+			case "center":
+				targetY += (rowHeight - item.box.Height) / 2
+			case "end", "flex-end", "last baseline":
+				targetY += rowHeight - item.box.Height
+			case "stretch":
+				if parseSize(item.box.Style.GetString("height")).Auto {
+					extra := rowHeight - item.box.Height
+					item.box.Height = rowHeight
+					item.box.ContentHeight += extra
+				}
+			}
+		}
 		deltaY := targetY - temporaryY
 		if deltaY != 0 {
 			shiftBox(item.box, 0, deltaY)
@@ -188,7 +227,26 @@ func (layout *Layout) layoutGrid(box *Box) {
 	box.ContentHeight = totalHeight
 }
 
-func (layout *Layout) layoutGridItem(item *Box, x, y, width float64) {
+func (layout *Layout) layoutGridItem(container, item *Box, x, y, width float64) {
+	justify := gridAlignment(container, item, "justify")
+	itemWidth := width
+	if justify != "" && justify != "stretch" && justify != "normal" {
+		size := parseSize(item.Style.GetString("width"))
+		if size.Auto || size.Keyword != "" {
+			layout.computeIntrinsicWidths(item)
+			itemWidth = math.Max(item.IntrinsicMinWidth, math.Min(width, item.IntrinsicMaxWidth))
+		} else {
+			itemWidth = math.Max(0, math.Min(width, layout.resolveWidth(item, width, 0, 0)))
+		}
+		remaining := width - itemWidth
+		switch justify {
+		case "center":
+			x += remaining / 2
+		case "end", "right":
+			x += remaining
+		}
+	}
+	width = itemWidth
 	paddingLeft := item.Padding.Left.Resolve(width)
 	paddingRight := item.Padding.Right.Resolve(width)
 	paddingTop := item.Padding.Top.Resolve(width)
@@ -206,7 +264,7 @@ func (layout *Layout) layoutGridItem(item *Box, x, y, width float64) {
 	item.Y = y
 	item.ContentY = y + borderTop + paddingTop
 	if !parseSize(item.Style.GetString("height")).Auto {
-		item.ContentHeight = resolveHeight(item.Style, 0, 0, verticalExtra)
+		item.ContentHeight = layout.resolveContentHeight(item, 0, 0, verticalExtra)
 		item.Height = item.ContentHeight + verticalExtra
 		return
 	}
@@ -214,11 +272,35 @@ func (layout *Layout) layoutGridItem(item *Box, x, y, width float64) {
 	item.Height = item.ContentHeight + verticalExtra
 }
 
+func gridAlignment(container, item *Box, axis string) string {
+	selfProperty := "align-self"
+	itemsProperty := "align-items"
+	if axis == "justify" {
+		selfProperty = "justify-self"
+		itemsProperty = "justify-items"
+	}
+	value := strings.ToLower(strings.TrimSpace(item.Style.GetString(selfProperty)))
+	if value == "" || value == "auto" {
+		value = strings.ToLower(strings.TrimSpace(container.Style.GetString(itemsProperty)))
+	}
+	switch value {
+	case "center", "end", "start", "stretch", "flex-start", "flex-end", "normal", "right", "left":
+		return value
+	}
+	return "stretch"
+}
+
 func (layout *Layout) parseTracks(text string, available float64) []trackSize {
 	values := parser.ParseComponentValueList(text)
 	tracks := []trackSize{}
 	for _, value := range values {
 		if parser.IsWhitespace(value) {
+			continue
+		}
+		if function, ok := value.(*parser.Function); ok && strings.EqualFold(function.Name, "minmax") {
+			if track, ok := parseMinMaxTrack(function.Value, available); ok {
+				tracks = append(tracks, track)
+			}
 			continue
 		}
 		if function, ok := value.(*parser.Function); ok && strings.EqualFold(function.Name, "repeat") {
@@ -249,8 +331,11 @@ func parseTrack(value parser.ComponentValue, available float64) (trackSize, bool
 	if !ok {
 		return trackSize{}, false
 	}
-	if token.Type == tokenizer.TokenIdent && strings.EqualFold(token.Value, "auto") {
-		return trackSize{auto: true}, true
+	if token.Type == tokenizer.TokenIdent {
+		switch strings.ToLower(token.Value) {
+		case "auto", "min-content", "max-content", "fit-content":
+			return trackSize{auto: true}, true
+		}
 	}
 	numeric, ok := cssvalues.ParseNumeric(value)
 	if !ok {
@@ -285,8 +370,8 @@ func resolveTracks(tracks []trackSize, available, gap float64, autoSizes []float
 		case track.auto:
 			autoCount++
 		default:
-			widths[index] = track.size
-			fixed += track.size
+			widths[index] = math.Max(track.minSize, track.size)
+			fixed += widths[index]
 		}
 	}
 	free := available - fixed
@@ -299,7 +384,10 @@ func resolveTracks(tracks []trackSize, available, gap float64, autoSizes []float
 	if flexTotal > 0 {
 		for index, track := range tracks {
 			if track.flex > 0 {
-				widths[index] = free * track.flex / flexTotal
+				widths[index] = math.Max(track.minSize, free*track.flex/flexTotal)
+				if track.hasRange && track.maxSize > 0 && widths[index] > track.maxSize {
+					widths[index] = track.maxSize
+				}
 			}
 		}
 		return widths
@@ -314,9 +402,54 @@ func resolveTracks(tracks []trackSize, available, gap float64, autoSizes []float
 			} else if autoCount > 0 {
 				widths[index] = free / float64(autoCount)
 			}
+			if widths[index] < track.minSize {
+				widths[index] = track.minSize
+			}
+			if track.hasRange && track.maxSize > 0 && widths[index] > track.maxSize {
+				widths[index] = track.maxSize
+			}
 		}
 	}
 	return widths
+}
+
+func parseMinMaxTrack(values []parser.ComponentValue, available float64) (trackSize, bool) {
+	groups := splitCommas(values)
+	if len(groups) != 2 {
+		return trackSize{}, false
+	}
+	minimum, ok := parseTrackArgument(groups[0], available)
+	if !ok {
+		return trackSize{}, false
+	}
+	maximum, ok := parseTrackArgument(groups[1], available)
+	if !ok {
+		return trackSize{}, false
+	}
+	track := trackSize{minSize: minimum.size, hasRange: true}
+	if minimum.auto {
+		track.auto = true
+	}
+	switch {
+	case maximum.flex > 0:
+		track.flex = maximum.flex
+	case maximum.auto:
+		track.auto = true
+	default:
+		track.size = maximum.size
+		track.maxSize = maximum.size
+	}
+	return track, true
+}
+
+func parseTrackArgument(values []parser.ComponentValue, available float64) (trackSize, bool) {
+	for _, value := range values {
+		if parser.IsWhitespace(value) {
+			continue
+		}
+		return parseTrack(value, available)
+	}
+	return trackSize{}, false
 }
 
 func gridLine(startText, endText string) (start int, span int, explicit bool) {
@@ -326,27 +459,39 @@ func gridLine(startText, endText string) (start int, span int, explicit bool) {
 	if start > 0 && end > 0 && end > start {
 		return start, end - start, explicit
 	}
+	if start > 0 && endSpan > 0 {
+		return start, endSpan, explicit
+	}
 	if startSpan > 0 {
 		return start, startSpan, explicit
 	}
 	if endSpan > 0 {
-		return end, endSpan, explicit
+		return 0, endSpan, explicit
 	}
-	return start, 1, explicit
+	if start > 0 {
+		return start, 1, explicit
+	}
+	return 0, 1, explicit
 }
 
 func parseGridLine(text string) (int, int) {
 	values := parser.ParseComponentValueList(strings.TrimSpace(text))
 	if len(values) == 0 {
-		return 0, 1
+		return 0, 0
 	}
 	if token, ok := parser.AsToken(values[0]); ok {
 		if token.Type == tokenizer.TokenIdent && strings.EqualFold(token.Value, "auto") {
 			return 0, 1
 		}
-		if token.Type == tokenizer.TokenIdent && strings.EqualFold(token.Value, "span") && len(values) > 1 {
-			if next, ok := parser.AsToken(values[1]); ok && next.Type == tokenizer.TokenNumber {
-				return 0, int(next.Number)
+		if token.Type == tokenizer.TokenIdent && strings.EqualFold(token.Value, "span") {
+			for _, value := range values[1:] {
+				if parser.IsWhitespace(value) {
+					continue
+				}
+				if next, ok := parser.AsToken(value); ok && next.Type == tokenizer.TokenNumber {
+					return 0, int(next.Number)
+				}
+				break
 			}
 		}
 		if token.Type == tokenizer.TokenNumber && token.NumericKind == tokenizer.Integer {

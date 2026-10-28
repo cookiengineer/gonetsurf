@@ -103,6 +103,44 @@ func boxValue(box *Box, property string) float64 {
 		return box.ScrollWidth
 	case "scrollHeight":
 		return box.ScrollHeight
+	case "scrollportWidth":
+		return box.ScrollportWidth()
+	case "scrollportHeight":
+		return box.ScrollportHeight()
+	case "maxScrollLeft":
+		return box.MaxScrollLeft()
+	case "maxScrollTop":
+		return box.MaxScrollTop()
+	case "clipX":
+		if box.ClipX {
+			return 1
+		}
+		return 0
+	case "clipY":
+		if box.ClipY {
+			return 1
+		}
+		return 0
+	case "firstChildX":
+		if len(box.Children) > 0 {
+			return box.Children[0].X
+		}
+		return math.NaN()
+	case "firstChildY":
+		if len(box.Children) > 0 {
+			return box.Children[0].Y
+		}
+		return math.NaN()
+	case "firstChildWidth":
+		if len(box.Children) > 0 {
+			return box.Children[0].Width
+		}
+		return math.NaN()
+	case "firstChildHeight":
+		if len(box.Children) > 0 {
+			return box.Children[0].Height
+		}
+		return math.NaN()
 	default:
 		return math.NaN()
 	}

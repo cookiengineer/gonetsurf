@@ -55,6 +55,7 @@ fuzz:
 
 bench:
 	$(GO) test ./parsers/css/ -run=^$$ -bench=. -benchtime=$(BENCHTIME)
+	$(GO) test ./layouts/ -run=^$$ -bench=. -benchtime=$(BENCHTIME)
 
 # Re-fetch raw upstream test sources into testdata/upstream and regenerate the
 # normalized corpora consumed by the tests.

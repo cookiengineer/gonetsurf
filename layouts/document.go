@@ -52,10 +52,13 @@ func (documentLayout *DocumentLayout) Reflow() *Box {
 	}
 	if documentLayout.hasLayout && documentLayout.Engine != nil &&
 		documentLayout.structureVersion == documentLayout.Document.StructuralVersion() {
+		dirtyNodes := documentLayout.Document.DirtyNodes()
 		styleMap := documentLayout.Engine.ComputeDocumentTree(documentLayout.Document)
 		refreshBoxStyles(documentLayout.box, styleMap)
 		documentLayout.layout = New(documentLayout.ViewportWidth, documentLayout.ViewportHeight)
+		documentLayout.layout.Dirty = dirtyBoxSet(documentLayout.box, dirtyNodes)
 		documentLayout.layout.Layout(documentLayout.box)
+		documentLayout.Document.ClearDirty()
 		documentLayout.version = documentLayout.Document.MutationVersion()
 		return documentLayout.box
 	}
@@ -66,6 +69,71 @@ func (documentLayout *DocumentLayout) Reflow() *Box {
 	documentLayout.structureVersion = documentLayout.Document.StructuralVersion()
 	documentLayout.hasLayout = true
 	return documentLayout.box
+}
+
+func refreshBoxStyle(box *Box, style *styles.Style) {
+	box.Style = style
+	box.Margin = styleEdges(style, "margin")
+	box.Padding = styleEdges(style, "padding")
+	box.Border = borderEdges(style)
+	box.FontSize, box.LineHeight = fontMetrics(style)
+	box.Ascent = MetricsForStyle(style).Ascent
+	box.ZIndex = parseZIndex(style.GetString("z-index"))
+	box.ClipX = clipsOverflow(style.GetString("overflow-x"))
+	box.ClipY = clipsOverflow(style.GetString("overflow-y"))
+	box.ScrollX = scrollsOverflow(style.GetString("overflow-x"))
+	box.ScrollY = scrollsOverflow(style.GetString("overflow-y"))
+	box.TextRotation = textRotation(style.GetString("writing-mode"))
+	box.intrinsicsComputed = false
+	box.IntrinsicMinWidth = 0
+	box.IntrinsicMaxWidth = 0
+}
+
+func dirtyBoxSet(root *Box, nodes []*dom.Node) map[*dom.Node]bool {
+	if len(nodes) == 0 {
+		return nil
+	}
+	dirty := map[*dom.Node]bool{}
+	for _, node := range nodes {
+		box := findBoxByNode(root, node)
+		if box == nil {
+			return nil
+		}
+		for ancestor := box; ancestor != nil; ancestor = ancestor.Parent {
+			if ancestor.Node != nil {
+				dirty[ancestor.Node] = true
+			}
+		}
+		markBoxSubtreeDirty(box, dirty)
+	}
+	return dirty
+}
+
+func markBoxSubtreeDirty(box *Box, dirty map[*dom.Node]bool) {
+	if box == nil {
+		return
+	}
+	if box.Node != nil {
+		dirty[box.Node] = true
+	}
+	for _, child := range box.Children {
+		markBoxSubtreeDirty(child, dirty)
+	}
+}
+
+func findBoxByNode(box *Box, node *dom.Node) *Box {
+	if box == nil || node == nil {
+		return nil
+	}
+	if box.Node == node {
+		return box
+	}
+	for _, child := range box.Children {
+		if found := findBoxByNode(child, node); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 func refreshBoxStyles(box *Box, styleMap map[*dom.Node]*styles.Style) {
@@ -82,20 +150,10 @@ func refreshBoxStyles(box *Box, styleMap map[*dom.Node]*styles.Style) {
 	}
 	if box.Node != nil {
 		if style := styleMap[box.Node]; style != nil {
-			box.Style = style
-			box.Margin = styleEdges(style, "margin")
-			box.Padding = styleEdges(style, "padding")
-			box.Border = borderEdges(style)
-			box.FontSize, box.LineHeight = fontMetrics(style)
-			box.Ascent = MetricsForStyle(style).Ascent
-			box.ZIndex = parseZIndex(style.GetString("z-index"))
-			box.ClipX = clipsOverflow(style.GetString("overflow-x"))
-			box.ClipY = clipsOverflow(style.GetString("overflow-y"))
-			box.TextRotation = textRotation(style.GetString("writing-mode"))
-			box.intrinsicsComputed = false
-			box.IntrinsicMinWidth = 0
-			box.IntrinsicMaxWidth = 0
+			refreshBoxStyle(box, style)
 		}
+	} else if box.Parent != nil && box.Parent.Style != nil {
+		refreshBoxStyle(box, box.Parent.Style)
 	}
 	for _, child := range box.Children {
 		refreshBoxStyles(child, styleMap)

@@ -61,6 +61,7 @@ func (layout *Layout) layoutFlex(box *Box) {
 		box.ContentHeight = 0
 		return
 	}
+	heightSpecified := !parseSize(box.Style.GetString("height")).Auto
 	mainGap := layout.flexGap(box, row)
 	mainSize := box.ContentWidth
 	if !row {
@@ -92,7 +93,37 @@ func (layout *Layout) layoutFlex(box *Box) {
 			lineHeight := layout.layoutFlexRowLine(box, line, offset, spacing, mainGap, lineY)
 			lineY += lineHeight
 		}
-		box.ContentHeight = lineY - box.ContentY
+		contentHeight := lineY - box.ContentY
+		if heightSpecified {
+			contentHeight = math.Max(contentHeight, box.ContentHeight)
+		}
+		box.ContentHeight = contentHeight
+		return
+	}
+	if !row && wrap {
+		lines := groupFlexLines(items, mainSize, mainGap)
+		lineX := box.ContentX
+		maxLineHeight := 0.0
+		for _, line := range lines {
+			resolveFlexLineSizes(line, mainSize, mainGap)
+			used := mainGap * float64(len(line)-1)
+			for _, item := range line {
+				used += item.mainSize + item.margin
+			}
+			offset, spacing := justifyOffsets(strings.ToLower(strings.TrimSpace(box.Style.GetString("justify-content"))), mainSize-used, len(line))
+			lineWidth := layout.layoutFlexColumnLine(box, line, offset, spacing, mainGap, lineX)
+			for _, item := range line {
+				if item.mainSize > maxLineHeight {
+					maxLineHeight = item.mainSize
+				}
+			}
+			lineX += lineWidth
+		}
+		if heightSpecified {
+			box.ContentHeight = mainSize
+		} else {
+			box.ContentHeight = maxLineHeight
+		}
 		return
 	}
 	resolveFlexLineSizes(items, mainSize, mainGap)
@@ -105,7 +136,7 @@ func (layout *Layout) layoutFlex(box *Box) {
 	if row {
 		box.ContentHeight = layout.layoutFlexRowLine(box, items, offset, spacing, mainGap, box.ContentY)
 	} else {
-		layout.layoutFlexColumn(box, items, offset, spacing, mainGap)
+		layout.layoutFlexColumnLine(box, items, offset, spacing, mainGap, box.ContentX)
 	}
 }
 
@@ -177,6 +208,7 @@ func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spac
 		borderBottom := item.box.Border.Bottom.Resolve(box.ContentWidth)
 		horizontalExtra := paddingLeft + paddingRight + borderLeft + borderRight
 		verticalExtra := paddingTop + paddingBottom + borderTop + borderBottom
+		item.mainSize = layout.clampFlexWidth(item.box, item.mainSize, item.mainSize, box.ContentWidth, horizontalExtra)
 		item.box.ContentWidth = math.Max(0, item.mainSize)
 		item.box.Width = item.box.ContentWidth + horizontalExtra
 		item.box.X = cursor + marginLeft
@@ -185,7 +217,7 @@ func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spac
 		item.box.ContentY = item.box.Y + borderTop + paddingTop
 		layout.layoutFlexItemContent(item.box)
 		item.box.ContentHeight = layout.flexContentHeight(item.box)
-		item.box.ContentHeight = resolveHeight(item.box.Style, item.box.ContentHeight, 0, verticalExtra)
+		item.box.ContentHeight = layout.resolveContentHeight(item.box, item.box.ContentHeight, 0, verticalExtra)
 		item.box.Height = item.box.ContentHeight + verticalExtra
 		outerHeight := item.box.Height + marginTop + marginBottom
 		if outerHeight > maxHeight {
@@ -213,14 +245,11 @@ func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spac
 		case "baseline":
 			maxAscent := 0.0
 			for _, other := range items {
-				if other.box.Ascent > maxAscent {
-					maxAscent = other.box.Ascent
+				if ascent := boxBaseline(other.box); ascent > maxAscent {
+					maxAscent = ascent
 				}
 			}
-			if item.box.Ascent <= 0 {
-				item.box.Ascent = item.box.FontSize * 0.8
-			}
-			item.box.Y = startY + maxAscent - item.box.Ascent
+			item.box.Y = startY + maxAscent - boxBaseline(item.box)
 		case "stretch":
 			if parseSize(item.box.Style.GetString("height")).Auto {
 				item.box.Height = maxHeight - marginTop - marginBottom
@@ -231,7 +260,7 @@ func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spac
 	return maxHeight
 }
 
-func (layout *Layout) layoutFlexColumn(box *Box, items []flexItem, offset, spacing, gap float64) {
+func (layout *Layout) layoutFlexColumnLine(box *Box, items []flexItem, offset, spacing, gap, startX float64) float64 {
 	cursor := box.ContentY + offset
 	maxWidth := 0.0
 	align := strings.ToLower(strings.TrimSpace(box.Style.GetString("align-items")))
@@ -265,11 +294,12 @@ func (layout *Layout) layoutFlexColumn(box *Box, items []flexItem, offset, spaci
 		}
 		item.box.ContentWidth = width
 		item.box.Width = width + horizontalExtra
-		item.box.X = box.ContentX + marginLeft
+		item.box.X = startX + marginLeft
 		item.box.ContentX = item.box.X + borderLeft + paddingLeft
 		item.box.Y = cursor + marginTop
 		item.box.ContentY = item.box.Y + borderTop + paddingTop
 		layout.layoutFlexItemContent(item.box)
+		item.mainSize = layout.clampHeight(item.box, item.mainSize, box.ContentHeight, verticalExtra)
 		item.box.ContentHeight = math.Max(0, item.mainSize)
 		item.box.Height = item.box.ContentHeight + verticalExtra
 		outerWidth := item.box.Width + marginLeft + marginRight
@@ -288,13 +318,16 @@ func (layout *Layout) layoutFlexColumn(box *Box, items []flexItem, offset, spaci
 		marginRight := item.box.Margin.Right.Resolve(box.ContentWidth)
 		switch alignSelf {
 		case "flex-end", "end":
-			item.box.X = box.ContentX + box.ContentWidth - marginRight - item.box.Width
+			item.box.X = startX + box.ContentWidth - marginRight - item.box.Width
 		case "center":
-			item.box.X = box.ContentX + (box.ContentWidth-item.box.Width-marginLeft-marginRight)/2 + marginLeft
+			item.box.X = startX + (box.ContentWidth-item.box.Width-marginLeft-marginRight)/2 + marginLeft
 		}
 		item.box.ContentX = item.box.X + item.box.Border.Left.Resolve(box.ContentWidth) + item.box.Padding.Left.Resolve(box.ContentWidth)
 	}
-	_ = maxWidth
+	if maxWidth <= 0 {
+		return 0
+	}
+	return maxWidth
 }
 
 func (layout *Layout) layoutFlexItemContent(box *Box) {
@@ -312,7 +345,7 @@ func (layout *Layout) layoutFlexItemContent(box *Box) {
 		}
 	}
 	if hasBlock {
-		layout.layoutBlockChildren(box, false, false)
+		layout.layoutBlockChildren(box, false, false, 0)
 	} else {
 		layout.layoutInlineChildren(box)
 	}
@@ -394,6 +427,48 @@ func justifyOffsets(justify string, remaining float64, count int) (float64, floa
 		return spacing, spacing
 	}
 	return 0, 0
+}
+
+func (layout *Layout) clampFlexWidth(box *Box, mainSize, available, containingWidth, horizontalExtra float64) float64 {
+	borderBox := strings.EqualFold(strings.TrimSpace(box.Style.GetString("box-sizing")), "border-box")
+	mainSize = layout.clampSize(box, box.Style.GetString("min-width"), mainSize, containingWidth, horizontalExtra, borderBox, true)
+	mainSize = layout.clampSize(box, box.Style.GetString("max-width"), mainSize, containingWidth, horizontalExtra, borderBox, false)
+	if mainSize > available && parseSize(box.Style.GetString("max-width")).Auto {
+		mainSize = available
+	}
+	return math.Max(0, mainSize)
+}
+
+func boxBaseline(box *Box) float64 {
+	if box == nil {
+		return 0
+	}
+	for _, child := range box.Children {
+		if child.Kind == TextBox || child.Kind == InlineBox || child.Kind == AnonymousBlockBox {
+			if baseline, ok := childBaseline(child); ok {
+				return baseline - box.Y
+			}
+		}
+	}
+	if box.Ascent > 0 {
+		return box.Ascent
+	}
+	return box.FontSize * 0.8
+}
+
+func childBaseline(box *Box) (float64, bool) {
+	if box == nil {
+		return 0, false
+	}
+	if box.Kind == TextBox {
+		return box.Y + box.Ascent, true
+	}
+	for _, child := range box.Children {
+		if baseline, ok := childBaseline(child); ok {
+			return baseline, true
+		}
+	}
+	return 0, false
 }
 
 func parseFlexNumber(text string, fallback float64) float64 {

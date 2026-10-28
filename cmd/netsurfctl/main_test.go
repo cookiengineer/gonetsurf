@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -47,4 +50,52 @@ func TestIsAllowedModule(t *testing.T) {
 			t.Errorf("isAllowedModule(%q) = %v, want %v", test.module, got, test.allow)
 		}
 	}
+}
+
+func TestLayoutCommand(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "page.html")
+	source := `<!doctype html><html><body style="margin:0"><style>#target { width:100px; height:50px; padding:10px; border:2px solid }</style><div id="target"></div></body></html>`
+	if err := os.WriteFile(path, []byte(source), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stdout
+	os.Stdout = writer
+	layoutErr := layout([]string{path, "400", "600"})
+	writer.Close()
+	os.Stdout = original
+	if layoutErr != nil {
+		t.Fatalf("layout: %v", layoutErr)
+	}
+	encoded, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var root layoutBoxJSON
+	if err := json.Unmarshal(encoded, &root); err != nil {
+		t.Fatalf("decode layout JSON: %v", err)
+	}
+	target := findLayoutBox(root, "target")
+	if target == nil {
+		t.Fatal("target box missing")
+	}
+	if target.Width != 124 || target.Height != 74 || target.ContentWidth != 100 || target.ContentHeight != 50 {
+		t.Errorf("target geometry = %vx%v content %vx%v", target.Width, target.Height, target.ContentWidth, target.ContentHeight)
+	}
+}
+
+func findLayoutBox(box layoutBoxJSON, id string) *layoutBoxJSON {
+	if box.ID == id {
+		return &box
+	}
+	for index := range box.Children {
+		if found := findLayoutBox(box.Children[index], id); found != nil {
+			return found
+		}
+	}
+	return nil
 }

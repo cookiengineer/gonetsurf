@@ -13,18 +13,16 @@ work.
 > have unit and Go-native conformance tests. Phase 5 (style resolution) is complete with
 > all 6 tasks `Verified`: indexed selector matching, UA stylesheet, presentational hints,
 > cascade/inheritance, custom properties, computed values, conditionals, and incremental
-> restyle. Phase 6 (layout) is implemented: box-tree construction, the box model,
-> intrinsic sizing, block layout with sibling/parent-child margin collapsing, simple
-> inline line layout, relative/absolute/fixed positioning, basic flexbox, tables, grid,
-> floats, simple text shaping, overflow metadata, logical property mapping, bidi run
-> segmentation with basic RTL word and per-character visual ordering, basic vertical-mode
-> block and inline text flow with rotation metadata, sticky scroll-clamped offsets, and a
-> mutation-versioned layout cache that reuses box trees for style-only changes are
-> implemented, along with row flex wrapping, baseline alignment, simple font metrics, and
-> scroll-container offsets/clipping. All 14 Phase 6
-> tasks are implemented, and a 19-case data-driven layout conformance harness passes;
-> broader verification and refinements are next. See [`handover.md`](./handover.md) for
-> the status and gaps.
+> restyle. Phase 6 (layout) has completed its layout-semantics pass: box-tree
+> construction, min/max/aspect-ratio sizing, block/inline/table/flex/grid formatting,
+> negative and collapsed-through margins, line boxes with alignment and inline-blocks,
+> line-level bidi, floats with clearance, padding-box positioning and sticky offsets,
+> vertical writing modes and logical properties, generic-family text metrics with pair
+> kerning, scrollbar-aware overflow, and dirty-subtree reflow with clean-subtree reuse
+> are implemented. Eleven Phase 6 tasks are `Verified`; P6-LAYOUT-007/012/013 remain
+> `Partial` only for Phase 7 paint/font artifacts. A 35-case geometry conformance
+> harness and `netsurfctl layout` cover the pipeline. See
+> [`handover.md`](./handover.md) for the status and gaps.
 
 ## How to read a task
 

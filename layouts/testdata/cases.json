@@ -426,5 +426,302 @@
     "y": 20
    }
   ]
+ },
+ {
+  "description": "min-height and max-height clamp the used height",
+  "html": "<div id=\"target\" style=\"height:300px;min-height:50px;max-height:120px\"></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "height": 120,
+    "contentHeight": 120
+   }
+  ]
+ },
+ {
+  "description": "aspect-ratio derives an auto height from width",
+  "html": "<div id=\"target\" style=\"width:100px;aspect-ratio:16 / 9\"></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "height": 56.25,
+    "contentHeight": 56.25
+   }
+  ]
+ },
+ {
+  "description": "negative sibling margins collapse algebraically",
+  "html": "<div style=\"height:20px;margin-bottom:20px\"></div><div id=\"target\" style=\"height:10px;margin-top:-30px\"></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "y": 10
+   }
+  ]
+ },
+ {
+  "description": "empty block margins collapse through",
+  "html": "<div style=\"overflow:hidden\"><div style=\"margin:20px 0 30px\"></div><div id=\"target\" style=\"height:10px\"></div></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "y": 30
+   }
+  ]
+ },
+ {
+  "description": "text-align centers an inline line",
+  "html": "<p id=\"target\">hello</p>",
+  "css": "html, body { margin:0; padding:0 } p { width:100px; text-align:center; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "firstChildX": 30
+   }
+  ]
+ },
+ {
+  "description": "inline-block participates in the line baseline",
+  "html": "<p id=\"target\"><span style=\"display:inline-block;width:20px;height:10px\"></span></p>",
+  "css": "html, body { margin:0; padding:0 } p { width:100px; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "firstChildY": 2.8,
+    "firstChildHeight": 10
+   }
+  ]
+ },
+ {
+  "description": "vertical-align middle centers an atomic inline",
+  "html": "<p id=\"target\"><span style=\"display:inline-block;width:20px;height:10px;vertical-align:middle\"></span></p>",
+  "css": "html, body { margin:0; padding:0 } p { width:100px; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "firstChildY": 4.6
+   }
+  ]
+ },
+ {
+  "description": "colspan spans multiple table columns",
+  "html": "<table id=\"target\"><tr><td id=\"span\" colspan=\"2\">a</td></tr><tr><td>a</td><td>b</td></tr></table>",
+  "css": "html, body { margin:0; padding:0 } table { display:table; width:100px; margin:0; padding:0; border:0 } tr { display:table-row } td { display:table-cell; margin:0; padding:0; border:0; font-size:16px; line-height:19.2px }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "span",
+    "width": 100
+   }
+  ]
+ },
+ {
+  "description": "border-collapse collapses adjacent cell borders",
+  "html": "<table id=\"target\"><tr><td>a</td><td>b</td></tr></table>",
+  "css": "html, body { margin:0; padding:0 } table { display:table; border-collapse:collapse; margin:0; padding:0; border:0 } tr { display:table-row } td { display:table-cell; margin:0; padding:0; border:2px solid; font-size:16px; line-height:19.2px }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "width": 20
+   }
+  ]
+ },
+ {
+  "description": "left floats stack side by side and clear moves below",
+  "html": "<div id=\"target\"><div id=\"first\" style=\"float:left;width:50px;height:20px\"></div><div id=\"second\" style=\"float:left;width:50px;height:20px\"></div><div id=\"cleared\" style=\"clear:left;height:10px\"></div></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "first",
+    "x": 0,
+    "y": 0
+   },
+   {
+    "id": "second",
+    "x": 50,
+    "y": 0
+   },
+   {
+    "id": "cleared",
+    "y": 20
+   },
+   {
+    "id": "target",
+    "height": 30
+   }
+  ]
+ },
+ {
+  "description": "absolute boxes use static position when offsets are auto",
+  "html": "<div id=\"target\" style=\"position:relative;padding:10px;height:100px\"><div id=\"flow\" style=\"height:20px\"></div><div id=\"static\" style=\"position:absolute;width:10px;height:10px\"></div></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "static",
+    "x": 10,
+    "y": 30
+   }
+  ]
+ },
+ {
+  "description": "column flex wrapping advances lines horizontally",
+  "html": "<div id=\"target\" style=\"display:flex;flex-direction:column;flex-wrap:wrap;align-items:flex-start;width:100px;height:40px\"><div id=\"a\" style=\"width:20px;height:30px\"></div><div id=\"b\" style=\"width:20px;height:30px\"></div><div id=\"c\" style=\"width:20px;height:30px\"></div></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "a",
+    "x": 0,
+    "y": 0
+   },
+   {
+    "id": "b",
+    "x": 20,
+    "y": 0
+   },
+   {
+    "id": "c",
+    "x": 40,
+    "y": 0
+   }
+  ]
+ },
+ {
+  "description": "grid creates implicit tracks and honors spans and alignment",
+  "html": "<div id=\"target\" style=\"display:grid;width:120px;height:40px;grid-template-columns:minmax(40px,1fr) minmax(40px,1fr);grid-template-rows:20px 20px;justify-items:center;align-items:center\"><div id=\"explicit\" style=\"grid-column-start:3;justify-self:start;width:20px;height:10px\"></div><div id=\"spanning\" style=\"grid-column-start:span 2;justify-self:stretch;width:20px;height:10px\"></div><div id=\"centered\" style=\"width:20px;height:10px\"></div></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "width": 120,
+    "height": 40
+   },
+   {
+    "id": "explicit",
+    "x": 120
+   },
+   {
+    "id": "spanning",
+    "width": 120
+   },
+   {
+    "id": "centered",
+    "x": 20,
+    "y": 25
+   }
+  ]
+ },
+ {
+  "description": "vertical block flow applies logical block margins",
+  "html": "<div id=\"target\" style=\"writing-mode:vertical-rl;inline-size:40px;block-size:60px\"><div id=\"a\" style=\"width:20px;height:10px;margin-block-start:10px\"></div><div id=\"b\" style=\"width:20px;height:10px\"></div></div>",
+  "css": "html, body { margin:0; padding:0 } div { margin:0; padding:0; border:0 } .noop{}",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "width": 60,
+    "height": 40
+   },
+   {
+    "id": "a",
+    "x": 30
+   },
+   {
+    "id": "b",
+    "x": 10
+   }
+  ]
+ },
+ {
+  "description": "auto overflow exposes scrollports and scroll ranges",
+  "html": "<div id=\"target\" style=\"width:50px;height:20px;overflow:auto\"><div style=\"width:100px;height:40px\"></div></div>",
+  "css": "html, body { margin:0; padding:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "clipX": 1,
+    "clipY": 1,
+    "scrollportWidth": 35,
+    "scrollportHeight": 5,
+    "maxScrollLeft": 65,
+    "maxScrollTop": 35
+   }
+  ]
+ },
+ {
+  "description": "font kerning tightens a pair",
+  "html": "<p id=\"target\">AV</p>",
+  "css": "html, body { margin:0; padding:0 } p { width:100px; font-family:sans-serif; font-kerning:normal; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }",
+  "viewport": {
+   "width": 400,
+   "height": 600
+  },
+  "checks": [
+   {
+    "id": "target",
+    "firstChildWidth": 15.2
+   }
+  ]
  }
 ]
