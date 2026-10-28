@@ -498,6 +498,20 @@ func (list *MediaList) Item(index int) string {
 	return list.items[index]
 }
 
+// Matches reports whether any query in the list matches the environment.
+func (list *MediaList) Matches(environment mediaqueries.Environment) bool {
+	if list == nil || len(list.items) == 0 {
+		return true
+	}
+	for _, item := range list.items {
+		query, err := mediaqueries.Parse(item)
+		if err == nil && query.Matches(environment) {
+			return true
+		}
+	}
+	return false
+}
+
 // AppendMedium appends a normalized media query unless it is already present.
 func (list *MediaList) AppendMedium(text string) {
 	query := normalizeMediaQuery(text)
