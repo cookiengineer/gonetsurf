@@ -83,7 +83,11 @@ func (layout *Layout) layoutBlock(box *Box, containingX, containingY, containing
 	box.Y = containingY + effectiveMarginTop
 	box.ContentY = box.Y + borderTop + paddingTop
 
-	if isFlexContainer(box) {
+	if isGridContainer(box) {
+		layout.layoutGrid(box)
+	} else if isTableContainer(box) {
+		layout.layoutTable(box)
+	} else if isFlexContainer(box) {
 		if !parseSize(box.Style.GetString("height")).Auto {
 			box.ContentHeight = resolveHeight(box.Style, 0, containingHeight, paddingTop+paddingBottom+borderTop+borderBottom)
 		}
@@ -109,14 +113,25 @@ func (layout *Layout) layoutBlockChildren(box *Box, collapseFirstTop, collapseLa
 	cursorY := box.ContentY
 	previousBottom := 0.0
 	first := true
+	floatBottom := 0.0
 	lastChild := lastBlockLevelChild(box)
 	for _, child := range box.Children {
 		if isOutOfFlow(child) {
 			layout.positioned = append(layout.positioned, child)
 			continue
 		}
+		if isFloat(child) {
+			bottom := layout.layoutFloat(child, box.ContentX, cursorY, box.ContentWidth)
+			if bottom > floatBottom {
+				floatBottom = bottom
+			}
+			continue
+		}
 		if !child.IsBlockLevel() {
 			continue
+		}
+		if floatBottom > cursorY {
+			cursorY = floatBottom
 		}
 		marginTop := child.Margin.Top.Resolve(box.ContentWidth)
 		collapsed := marginTop
@@ -138,6 +153,9 @@ func (layout *Layout) layoutBlockChildren(box *Box, collapseFirstTop, collapseLa
 	}
 	if !first {
 		cursorY += previousBottom
+	}
+	if floatBottom > cursorY {
+		cursorY = floatBottom
 	}
 	box.ContentHeight = math.Max(0, cursorY-box.ContentY)
 }
@@ -185,9 +203,17 @@ func establishesBlockFormattingContext(box *Box) bool {
 
 func (layout *Layout) layoutInlineChildren(box *Box) {
 	items := []*Box{}
+	floatBottom := 0.0
 	for _, child := range box.Children {
 		if isOutOfFlow(child) {
 			layout.positioned = append(layout.positioned, child)
+			continue
+		}
+		if isFloat(child) {
+			bottom := layout.layoutFloat(child, box.ContentX, box.ContentY, box.ContentWidth)
+			if bottom > floatBottom {
+				floatBottom = bottom
+			}
 			continue
 		}
 		collectInlineBoxes(child, &items)
@@ -225,6 +251,9 @@ func (layout *Layout) layoutInlineChildren(box *Box) {
 		for _, word := range wordBoxes {
 			word.Parent = box
 		}
+	}
+	if floatBottom > lineY {
+		lineY = floatBottom
 	}
 	box.ContentHeight = math.Max(0, lineY-box.ContentY)
 }

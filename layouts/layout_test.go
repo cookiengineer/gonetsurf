@@ -576,3 +576,213 @@ func TestFlexboxGapAndOrder(t *testing.T) {
 		t.Errorf("first x = %v, want 120", got)
 	}
 }
+
+func TestTableLayout(t *testing.T) {
+	document, body := testDocument()
+	table := document.CreateElement("table")
+	table.SetAttribute("class", "table")
+	row1 := document.CreateElement("tr")
+	cellA := document.CreateElement("td")
+	cellA.AppendChild(document.CreateTextNode("a"))
+	cellB := document.CreateElement("td")
+	cellB.AppendChild(document.CreateTextNode("bb"))
+	row1.AppendChild(cellA)
+	row1.AppendChild(cellB)
+	row2 := document.CreateElement("tr")
+	cellC := document.CreateElement("td")
+	cellC.AppendChild(document.CreateTextNode("ccc"))
+	cellD := document.CreateElement("td")
+	cellD.AppendChild(document.CreateTextNode("d"))
+	row2.AppendChild(cellC)
+	row2.AppendChild(cellD)
+	table.AppendChild(row1)
+	table.AppendChild(row2)
+	body.AppendChild(table)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		table { display:table; margin:0; padding:0; border:0 }
+		tr { display:table-row }
+		td { display:table-cell; margin:0; padding:0; border:0; font-size:16px; line-height:19.2px }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	tableBox := findBox(root, table)
+	if tableBox.ContentWidth != 40 || tableBox.ContentHeight != 38.4 {
+		t.Errorf("table = %vx%v, want 40x38.4", tableBox.ContentWidth, tableBox.ContentHeight)
+	}
+	row1Box := findBox(root, row1)
+	row2Box := findBox(root, row2)
+	if row1Box.Y != 0 || row2Box.Y != 19.2 {
+		t.Errorf("rows = y:%v and y:%v", row1Box.Y, row2Box.Y)
+	}
+	if findBox(root, cellA).X != 0 || findBox(root, cellA).Width != 24 {
+		t.Errorf("cell A = x:%v w:%v, want 0/24", findBox(root, cellA).X, findBox(root, cellA).Width)
+	}
+	if findBox(root, cellB).X != 24 || findBox(root, cellB).Width != 16 {
+		t.Errorf("cell B = x:%v w:%v, want 24/16", findBox(root, cellB).X, findBox(root, cellB).Width)
+	}
+}
+
+func TestTableExplicitWidth(t *testing.T) {
+	document, body := testDocument()
+	table := document.CreateElement("table")
+	table.SetAttribute("class", "table")
+	row := document.CreateElement("tr")
+	first := document.CreateElement("td")
+	first.AppendChild(document.CreateTextNode("a"))
+	second := document.CreateElement("td")
+	second.AppendChild(document.CreateTextNode("bb"))
+	row.AppendChild(first)
+	row.AppendChild(second)
+	table.AppendChild(row)
+	body.AppendChild(table)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		table { display:table; width:100px; margin:0; padding:0; border:0 }
+		tr { display:table-row }
+		td { display:table-cell; margin:0; padding:0; border:0; font-size:16px; line-height:19.2px }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	tableBox := findBox(root, table)
+	if tableBox.ContentWidth != 100 {
+		t.Errorf("table width = %v, want 100", tableBox.ContentWidth)
+	}
+	if got := findBox(root, first).Width; math.Abs(got-100.0/3) > 1e-9 {
+		t.Errorf("first width = %v, want %v", got, 100.0/3)
+	}
+	if got := findBox(root, second).Width; math.Abs(got-200.0/3) > 1e-9 {
+		t.Errorf("second width = %v, want %v", got, 200.0/3)
+	}
+}
+
+func TestGridLayout(t *testing.T) {
+	document, body := testDocument()
+	grid := document.CreateElement("div")
+	grid.SetAttribute("class", "grid")
+	items := []*dom.Node{}
+	for index := 0; index < 3; index++ {
+		item := document.CreateElement("div")
+		item.SetAttribute("class", "item")
+		grid.AppendChild(item)
+		items = append(items, item)
+	}
+	body.AppendChild(grid)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.grid { display:grid; width:160px; height:100px; margin:0; padding:0; border:0; grid-template-columns:50px 100px; grid-template-rows:20px 20px; column-gap:10px; row-gap:10px }
+		.item { margin:0; padding:0; border:0; height:20px }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	wantX := []float64{0, 60, 0}
+	wantY := []float64{0, 0, 30}
+	wantW := []float64{50, 100, 50}
+	for index, item := range items {
+		box := findBox(root, item)
+		if box.X != wantX[index] || box.Y != wantY[index] || box.Width != wantW[index] {
+			t.Errorf("grid item %d = x:%v y:%v w:%v, want %v/%v/%v", index, box.X, box.Y, box.Width, wantX[index], wantY[index], wantW[index])
+		}
+	}
+}
+
+func TestGridFrAndPlacement(t *testing.T) {
+	document, body := testDocument()
+	grid := document.CreateElement("div")
+	grid.SetAttribute("class", "fr")
+	first := document.CreateElement("div")
+	first.SetAttribute("class", "item")
+	second := document.CreateElement("div")
+	second.SetAttribute("class", "item")
+	grid.AppendChild(first)
+	grid.AppendChild(second)
+	body.AppendChild(grid)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.fr { display:grid; width:300px; height:20px; margin:0; padding:0; border:0; grid-template-columns:1fr 2fr; gap:0 }
+		.item { margin:0; padding:0; border:0; height:20px }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	if got := findBox(root, first).Width; got != 100 {
+		t.Errorf("fr first width = %v, want 100", got)
+	}
+	if got := findBox(root, second).Width; got != 200 {
+		t.Errorf("fr second width = %v, want 200", got)
+	}
+	if got := findBox(root, second).X; got != 100 {
+		t.Errorf("fr second x = %v, want 100", got)
+	}
+
+	document, body = testDocument()
+	placed := document.CreateElement("div")
+	placed.SetAttribute("class", "placed")
+	explicit := document.CreateElement("div")
+	explicit.SetAttribute("class", "explicit")
+	auto := document.CreateElement("div")
+	auto.SetAttribute("class", "auto")
+	placed.AppendChild(explicit)
+	placed.AppendChild(auto)
+	body.AppendChild(placed)
+	engine = testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.placed { display:grid; width:160px; height:100px; margin:0; padding:0; border:0; grid-template-columns:50px 100px; grid-template-rows:20px 20px; column-gap:10px; row-gap:10px }
+		.explicit, .auto { margin:0; padding:0; border:0; height:20px }
+		.explicit { grid-column-start:2; grid-row-start:1 }
+	`)
+	root = BuildDocument(document, engine)
+	layout = New(400, 600)
+	layout.Layout(root)
+	if got := findBox(root, explicit).X; got != 60 {
+		t.Errorf("explicit x = %v, want 60", got)
+	}
+	if got := findBox(root, auto).X; got != 0 {
+		t.Errorf("auto x = %v, want 0", got)
+	}
+}
+
+func TestFloatLayout(t *testing.T) {
+	document, body := testDocument()
+	left := document.CreateElement("div")
+	left.SetAttribute("class", "float-left")
+	right := document.CreateElement("div")
+	right.SetAttribute("class", "float-right")
+	after := document.CreateElement("div")
+	after.SetAttribute("class", "after")
+	body.AppendChild(left)
+	body.AppendChild(right)
+	body.AppendChild(after)
+
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.float-left { float:left; width:50px; height:20px; margin:0; padding:0; border:0 }
+		.float-right { float:right; width:50px; height:20px; margin:0; padding:0; border:0 }
+		.after { display:block; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+
+	leftBox := findBox(root, left)
+	rightBox := findBox(root, right)
+	afterBox := findBox(root, after)
+	if leftBox.X != 0 || leftBox.Y != 0 {
+		t.Errorf("left float = (%v,%v)", leftBox.X, leftBox.Y)
+	}
+	if rightBox.X != 350 || rightBox.Y != 0 {
+		t.Errorf("right float = (%v,%v)", rightBox.X, rightBox.Y)
+	}
+	if afterBox.Y != 20 {
+		t.Errorf("after y = %v, want 20", afterBox.Y)
+	}
+}
