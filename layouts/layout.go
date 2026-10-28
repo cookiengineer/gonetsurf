@@ -95,6 +95,12 @@ func (layout *Layout) layoutBlock(box *Box, containingX, containingY, containing
 			box.ContentHeight = resolveHeight(box.Style, 0, containingHeight, paddingTop+paddingBottom+borderTop+borderBottom)
 		}
 		layout.layoutFlex(box)
+	} else if isVerticalWritingMode(box) {
+		if firstChild != nil {
+			layout.layoutVerticalBlockChildren(box)
+		} else {
+			layout.layoutInlineChildren(box)
+		}
 	} else if firstChild != nil {
 		layout.layoutBlockChildren(box, collapseTop, collapseBottom)
 	} else {
@@ -205,6 +211,10 @@ func establishesBlockFormattingContext(box *Box) bool {
 }
 
 func (layout *Layout) layoutInlineChildren(box *Box) {
+	if isVerticalWritingMode(box) {
+		layout.layoutVerticalInlineChildren(box)
+		return
+	}
 	items := []*Box{}
 	floatBottom := 0.0
 	for _, child := range box.Children {
@@ -718,4 +728,107 @@ func (layout *Layout) computeOverflow(box *Box) (float64, float64) {
 	box.ScrollWidth = math.Max(0, maxRight-box.ContentX)
 	box.ScrollHeight = math.Max(0, maxBottom-box.ContentY)
 	return maxRight, maxBottom
+}
+
+func isVerticalWritingMode(box *Box) bool {
+	if box == nil || box.Style == nil {
+		return false
+	}
+	mode := strings.ToLower(strings.TrimSpace(box.Style.GetString("writing-mode")))
+	return strings.HasPrefix(mode, "vertical") || strings.HasPrefix(mode, "sideways")
+}
+
+func (layout *Layout) layoutVerticalBlockChildren(box *Box) {
+	mode := strings.ToLower(strings.TrimSpace(box.Style.GetString("writing-mode")))
+	rightToLeft := strings.HasSuffix(mode, "rl")
+	cursorX := box.ContentX
+	if rightToLeft {
+		cursorX += box.ContentWidth
+	}
+	maxHeight := 0.0
+	for _, child := range box.Children {
+		if isOutOfFlow(child) {
+			layout.positioned = append(layout.positioned, child)
+			continue
+		}
+		if isFloat(child) {
+			continue
+		}
+		if !child.IsBlockLevel() {
+			continue
+		}
+		layout.layoutBlock(child, box.ContentX, box.ContentY, box.ContentWidth, 0)
+		desiredX := cursorX
+		if rightToLeft {
+			desiredX -= child.Width
+			cursorX -= child.Width
+		} else {
+			cursorX += child.Width
+		}
+		shiftBox(child, desiredX-child.X, box.ContentY-child.Y)
+		if child.Height > maxHeight {
+			maxHeight = child.Height
+		}
+	}
+	box.ContentHeight = maxHeight
+}
+
+func (layout *Layout) layoutVerticalInlineChildren(box *Box) {
+	items := []*Box{}
+	for _, child := range box.Children {
+		if isOutOfFlow(child) {
+			layout.positioned = append(layout.positioned, child)
+			continue
+		}
+		if isFloat(child) {
+			continue
+		}
+		collectInlineBoxes(child, &items)
+	}
+	lineCross := box.LineHeight
+	if lineCross <= 0 {
+		lineCross = box.FontSize * 1.2
+	}
+	mode := strings.ToLower(strings.TrimSpace(box.Style.GetString("writing-mode")))
+	rightToLeft := strings.HasSuffix(mode, "rl")
+	lineX := box.ContentX
+	if rightToLeft {
+		lineX = box.ContentX + box.ContentWidth - lineCross
+	}
+	available := math.Inf(1)
+	if size := parseSize(box.Style.GetString("height")); !size.Auto && !size.Percent && size.Keyword == "" {
+		available = size.Value
+	}
+	cursorY := box.ContentY
+	maxHeight := 0.0
+	wordBoxes := make([]*Box, 0, len(items))
+	for _, item := range items {
+		advance, _ := layout.measureText(item.Text, item.Style)
+		if cursorY > box.ContentY && cursorY+advance > box.ContentY+available {
+			cursorY = box.ContentY
+			if rightToLeft {
+				lineX -= lineCross
+			} else {
+				lineX += lineCross
+			}
+		}
+		item.X = lineX
+		item.Y = cursorY
+		item.Width = lineCross
+		item.Height = advance
+		item.ContentX = lineX
+		item.ContentY = cursorY
+		item.ContentWidth = lineCross
+		item.ContentHeight = advance
+		cursorY += advance
+		if cursorY-box.ContentY > maxHeight {
+			maxHeight = cursorY - box.ContentY
+		}
+		wordBoxes = append(wordBoxes, item)
+	}
+	box.Children = wordBoxes
+	for _, word := range wordBoxes {
+		word.Parent = box
+	}
+	box.ContentHeight = maxHeight
 }

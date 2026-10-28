@@ -33,10 +33,11 @@ type Document struct {
 	Sandbox     SandboxFlags
 	ReadyState  ReadyState
 
-	idIndex         map[string]*Node
-	indexDirty      bool
-	mutationVersion uint64
-	dirtyNodes      map[*Node]bool
+	idIndex           map[string]*Node
+	indexDirty        bool
+	mutationVersion   uint64
+	structuralVersion uint64
+	dirtyNodes        map[*Node]bool
 }
 
 // NewDocument returns a new empty document.
@@ -93,6 +94,16 @@ func (document *Document) CreateDocumentType(name, publicID, systemID string) *N
 func (document *Document) markDirty() {
 	document.indexDirty = true
 	document.mutationVersion++
+}
+
+func (document *Document) markStructural() {
+	document.structuralVersion++
+	document.markDirty()
+}
+
+// StructuralVersion returns a counter incremented only by tree-shape changes.
+func (document *Document) StructuralVersion() uint64 {
+	return document.structuralVersion
 }
 
 func (document *Document) markNodeDirty(node *Node) {

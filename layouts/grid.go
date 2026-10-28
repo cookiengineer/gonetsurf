@@ -93,9 +93,17 @@ func (layout *Layout) layoutGrid(box *Box) {
 	row := 0
 	for index := range items {
 		item := &items[index]
-		if item.column > 0 && item.row > 0 {
-			item.column--
-			item.row--
+		if item.explicit {
+			if item.column > 0 {
+				item.column--
+			} else {
+				item.column = 0
+			}
+			if item.row > 0 {
+				item.row--
+			} else {
+				item.row = 0
+			}
 			if item.columnSpan < 1 {
 				item.columnSpan = 1
 			}

@@ -885,17 +885,25 @@ func TestDocumentLayoutCache(t *testing.T) {
 
 	paragraph.AddClass("wide")
 	second := cache.Reflow()
-	if second == first {
-		t.Error("mutated document should rebuild the box tree")
+	if second != first {
+		t.Error("style-only mutation should reuse the box tree")
 	}
 	if got := findBox(second, paragraph).Width; got != 200 {
 		t.Errorf("restyled width = %v, want 200", got)
 	}
 
-	cache.ViewportWidth = 800
-	cache.Invalidate()
+	extra := document.CreateElement("p")
+	extra.SetAttribute("class", "item")
+	body.AppendChild(extra)
 	third := cache.Reflow()
 	if third == second {
+		t.Error("structural mutation should rebuild the box tree")
+	}
+
+	cache.ViewportWidth = 800
+	cache.Invalidate()
+	fourth := cache.Reflow()
+	if fourth == third {
 		t.Error("invalidated viewport should rebuild the box tree")
 	}
 }
@@ -1060,5 +1068,148 @@ func TestFontMetrics(t *testing.T) {
 	width, _ := layout.measureText("ab", styleMap[paragraph])
 	if math.Abs(width-19.2) > 1e-9 {
 		t.Errorf("monospace width = %v, want 19.2", width)
+	}
+}
+
+func TestVerticalWritingModeBlocks(t *testing.T) {
+	document, body := testDocument()
+	container := document.CreateElement("div")
+	container.SetAttribute("class", "vertical-rl")
+	first := document.CreateElement("div")
+	first.SetAttribute("class", "a")
+	second := document.CreateElement("div")
+	second.SetAttribute("class", "b")
+	container.AppendChild(first)
+	container.AppendChild(second)
+	body.AppendChild(container)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.vertical-rl { display:block; writing-mode:vertical-rl; width:60px; height:40px; margin:0; padding:0; border:0 }
+		.a { display:block; width:20px; height:10px; margin:0; padding:0; border:0 }
+		.b { display:block; width:30px; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	if got := findBox(root, first).X; got != 40 {
+		t.Errorf("vertical-rl first x = %v, want 40", got)
+	}
+	if got := findBox(root, second).X; got != 10 {
+		t.Errorf("vertical-rl second x = %v, want 10", got)
+	}
+
+	document, body = testDocument()
+	container = document.CreateElement("div")
+	container.SetAttribute("class", "vertical-lr")
+	first = document.CreateElement("div")
+	first.SetAttribute("class", "a")
+	second = document.CreateElement("div")
+	second.SetAttribute("class", "b")
+	container.AppendChild(first)
+	container.AppendChild(second)
+	body.AppendChild(container)
+	engine = testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.vertical-lr { display:block; writing-mode:vertical-lr; width:60px; height:40px; margin:0; padding:0; border:0 }
+		.a { display:block; width:20px; height:10px; margin:0; padding:0; border:0 }
+		.b { display:block; width:30px; height:10px; margin:0; padding:0; border:0 }
+	`)
+	root = BuildDocument(document, engine)
+	layout = New(400, 600)
+	layout.Layout(root)
+	if got := findBox(root, first).X; got != 0 {
+		t.Errorf("vertical-lr first x = %v, want 0", got)
+	}
+	if got := findBox(root, second).X; got != 20 {
+		t.Errorf("vertical-lr second x = %v, want 20", got)
+	}
+}
+
+func TestVerticalInlineText(t *testing.T) {
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	paragraph.SetAttribute("class", "vertical")
+	paragraph.AppendChild(document.CreateTextNode("ab cd"))
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p.vertical { display:block; writing-mode:vertical-rl; width:40px; height:20px; font-size:16px; line-height:19.2px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	p := findBox(root, paragraph)
+	if len(p.Children) != 2 {
+		t.Fatalf("vertical words = %d, want 2", len(p.Children))
+	}
+	if math.Abs(p.Children[0].X-20.8) > 1e-9 || p.Children[0].Y != 0 {
+		t.Errorf("first vertical word = (%v,%v), want (20.8,0)", p.Children[0].X, p.Children[0].Y)
+	}
+	if math.Abs(p.Children[1].X-1.6) > 1e-9 || p.Children[1].Y != 0 {
+		t.Errorf("second vertical word = (%v,%v), want (1.6,0)", p.Children[1].X, p.Children[1].Y)
+	}
+}
+
+func TestStickyOffset(t *testing.T) {
+	document, body := testDocument()
+	scroller := document.CreateElement("div")
+	scroller.SetAttribute("class", "scroller")
+	wrapper := document.CreateElement("div")
+	wrapper.SetAttribute("class", "wrapper")
+	sticky := document.CreateElement("div")
+	sticky.SetAttribute("class", "sticky")
+	wrapper.AppendChild(sticky)
+	scroller.AppendChild(wrapper)
+	body.AppendChild(scroller)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.scroller { display:block; width:100px; height:100px; overflow:auto; margin:0; padding:0; border:0 }
+		.wrapper { display:block; height:200px; margin:0; padding:0; border:0 }
+		.sticky { position:sticky; top:0; left:0; width:20px; height:20px; margin:0; padding:0; border:0 }
+	`)
+	root := BuildDocument(document, engine)
+	layout := New(400, 600)
+	layout.Layout(root)
+	stickyBox := findBox(root, sticky)
+	x, y := stickyBox.StickyOffset(0, 50)
+	if x != 0 || y != 50 {
+		t.Errorf("sticky at scroll 50 = (%v,%v), want (0,50)", x, y)
+	}
+	_, y = stickyBox.StickyOffset(0, 190)
+	if y != 180 {
+		t.Errorf("sticky clamped y = %v, want 180", y)
+	}
+}
+
+func TestTextRotationMetadata(t *testing.T) {
+	document, body := testDocument()
+	for _, mode := range []string{"horizontal-tb", "vertical-rl", "vertical-lr", "sideways-rl", "sideways-lr"} {
+		element := document.CreateElement("div")
+		element.SetAttribute("class", "rot-"+mode)
+		body.AppendChild(element)
+	}
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		.rot-horizontal-tb { writing-mode:horizontal-tb; display:block; height:10px }
+		.rot-vertical-rl { writing-mode:vertical-rl; display:block; width:10px }
+		.rot-vertical-lr { writing-mode:vertical-lr; display:block; width:10px }
+		.rot-sideways-rl { writing-mode:sideways-rl; display:block; width:10px }
+		.rot-sideways-lr { writing-mode:sideways-lr; display:block; width:10px }
+	`)
+	root := BuildDocument(document, engine)
+	want := map[string]float64{
+		"horizontal-tb": 0, "vertical-rl": 90, "vertical-lr": -90,
+		"sideways-rl": 90, "sideways-lr": -90,
+	}
+	for mode, rotation := range want {
+		for _, child := range root.Children {
+			for _, box := range child.Children {
+				if box.Node != nil && box.Node.HasClass("rot-"+mode) {
+					if box.TextRotation != rotation {
+						t.Errorf("%s rotation = %v, want %v", mode, box.TextRotation, rotation)
+					}
+				}
+			}
+		}
 	}
 }

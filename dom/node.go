@@ -153,6 +153,9 @@ func (node *Node) InsertBefore(child, reference *Node) {
 		return
 	}
 	defer func() {
+		if node.owner != nil {
+			node.owner.markStructural()
+		}
 		node.notifyMutation()
 		child.notifyMutation()
 	}()
@@ -195,7 +198,7 @@ func (node *Node) removeChild(child *Node) {
 	child.setOwner(nil)
 	if node.owner != nil {
 		node.owner.markNodeDirty(node)
-		node.owner.markDirty()
+		node.owner.markStructural()
 	}
 }
 
@@ -304,7 +307,7 @@ func (node *Node) RemoveChildren() {
 	node.children = nil
 	if node.owner != nil {
 		node.owner.markNodeDirty(node)
-		node.owner.markDirty()
+		node.owner.markStructural()
 	}
 }
 

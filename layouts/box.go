@@ -86,10 +86,11 @@ type Box struct {
 	ContentWidth  float64
 	ContentHeight float64
 
-	FontSize   float64
-	LineHeight float64
-	Ascent     float64
-	ZIndex     int
+	FontSize     float64
+	LineHeight   float64
+	Ascent       float64
+	TextRotation float64
+	ZIndex       int
 
 	IntrinsicMinWidth  float64
 	IntrinsicMaxWidth  float64
@@ -209,6 +210,7 @@ func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, inherited *
 	}
 	box.FontSize, box.LineHeight = fontMetrics(style)
 	box.Ascent = MetricsForStyle(style).Ascent
+	box.TextRotation = textRotation(style.GetString("writing-mode"))
 	box.ZIndex = parseZIndex(style.GetString("z-index"))
 	box.ClipX = clipsOverflow(style.GetString("overflow-x"))
 	box.ClipY = clipsOverflow(style.GetString("overflow-y"))
@@ -318,6 +320,17 @@ func parseLength(text string) Length {
 	return Length{}
 }
 
+func textRotation(writingMode string) float64 {
+	switch strings.ToLower(strings.TrimSpace(writingMode)) {
+	case "vertical-rl", "sideways-rl":
+		return 90
+	case "vertical-lr", "sideways-lr":
+		return -90
+	default:
+		return 0
+	}
+}
+
 func clipsOverflow(value string) bool {
 	switch strings.ToLower(strings.TrimSpace(value)) {
 	case "hidden", "clip", "scroll", "auto":
@@ -364,6 +377,93 @@ func fontMetrics(style *styles.Style) (float64, float64) {
 		}
 	}
 	return fontSize, lineHeight
+}
+
+// ScrollbarThickness is the reserved scrollbar size used by scrollport
+// calculations.
+const ScrollbarThickness = 15.0
+
+// ScrollportWidth returns the content width available inside the scrollbars.
+func (box *Box) ScrollportWidth() float64 {
+	if box.ClipY {
+		return math.Max(0, box.ContentWidth-ScrollbarThickness)
+	}
+	return box.ContentWidth
+}
+
+// ScrollportHeight returns the content height available inside the scrollbars.
+func (box *Box) ScrollportHeight() float64 {
+	if box.ClipX {
+		return math.Max(0, box.ContentHeight-ScrollbarThickness)
+	}
+	return box.ContentHeight
+}
+
+// StickyOffset returns the visual position of a sticky box for a scroll
+// container offset. Non-sticky boxes return their layout position.
+func (box *Box) StickyOffset(scrollX, scrollY float64) (float64, float64) {
+	if box == nil || box.Style == nil {
+		return 0, 0
+	}
+	position := strings.ToLower(strings.TrimSpace(box.Style.GetString("position")))
+	if position != "sticky" {
+		return box.X, box.Y
+	}
+	container := box.scrollContainer()
+	if container == nil {
+		return box.X, box.Y
+	}
+	x, y := box.X, box.Y
+	viewportX := container.ContentX + scrollX
+	viewportY := container.ContentY + scrollY
+	left := parseOffset(box.Style.GetString("left"))
+	right := parseOffset(box.Style.GetString("right"))
+	top := parseOffset(box.Style.GetString("top"))
+	bottom := parseOffset(box.Style.GetString("bottom"))
+	minX := viewportX
+	maxX := viewportX + container.ScrollportWidth() - box.Width
+	minY := viewportY
+	maxY := viewportY + container.ScrollportHeight() - box.Height
+	if !left.Auto {
+		minX += left.Resolve(container.ContentWidth)
+	} else if !right.Auto {
+		maxX -= right.Resolve(container.ContentWidth)
+	}
+	if !top.Auto {
+		minY += top.Resolve(container.ContentHeight)
+	} else if !bottom.Auto {
+		maxY -= bottom.Resolve(container.ContentHeight)
+	}
+	if x < minX {
+		x = minX
+	}
+	if x > maxX {
+		x = maxX
+	}
+	if y < minY {
+		y = minY
+	}
+	if y > maxY {
+		y = maxY
+	}
+	if parent := box.Parent; parent != nil {
+		if x > parent.ContentX+parent.ContentWidth-box.Width {
+			x = parent.ContentX + parent.ContentWidth - box.Width
+		}
+		if y > parent.ContentY+parent.ContentHeight-box.Height {
+			y = parent.ContentY + parent.ContentHeight - box.Height
+		}
+	}
+	return x, y
+}
+
+func (box *Box) scrollContainer() *Box {
+	for parent := box.Parent; parent != nil; parent = parent.Parent {
+		if parent.ClipX || parent.ClipY {
+			return parent
+		}
+	}
+	return nil
 }
 
 // MaxScrollLeft returns the maximum horizontal scroll offset.
