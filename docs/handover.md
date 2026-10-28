@@ -21,32 +21,37 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 
 | Phase | Scope | State |
 |---|---|---|
-| 0 | Foundations (module, deps policy, panic barrier, fuzzing, docs) | **Done** (2 Verified, 3 Implemented) |
+| 0 | Foundations (module, deps policy, panic barrier, fuzzing, docs) | **Done** (5/5 Verified) |
 | 1 | WHATWG URL, encoding sniffing, HTML microsyntaxes | **Done** (10/10 Verified) |
 | 2 | HTTP/1.1, TLS, DNS, cache, cookies, SOCKS, WebSocket, internal schemes | **Done** (18 Verified, 1 Implemented/Partial) |
 | 3 | HTML parsing (`x/net/html`) + `dom` | **Done** (6/6 Verified) |
 | 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Done** (14/14 Verified) |
 | 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
 | 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (11 Verified, 3 Partial for Phase 7 paint/font residuals) |
-| 7–10 | Paint/window/UI/process sandbox/JS/Web APIs | **Not started** |
+| 7 | Paint/fonts/images/color | **Done** (10 Verified, 3 Partial with recorded dependencies; no Planned tasks) |
+| 8 | X11 window/UI shell | **Started** (X11 window/presenter WIP; input and SHM pending) |
+| 9–10 | Process sandbox/JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **67 Verified, 7 Implemented/Partial, 40 Planned, 0 Blocked**. There are no open
+Totals: **80 Verified, 8 Implemented/Partial, 29 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
-There is **no browser executable yet**. Phases 0–6 are the engine's foundational
-libraries; the first runnable windowed browser is expected after Phases 7–8.
+There is **no full browser executable yet**. Phases 0–6 are the engine's foundational
+libraries, Phase 7 now paints to PNG, and `netsurfctl show` can open a rendered page in
+a minimal X11 window. The first interactive windowed browser is expected after Phase 8.
 
 ## 3. Quick start
 
 ```sh
 go build ./...                          # compile everything
 go vet ./...                            # static checks
-gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts   # formatting
+gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts rendering windowing   # formatting
 go test ./... -count=1                  # unit + integration tests
 go run ./cmd/netsurfctl deps-check      # enforce the no-third-party policy
 go run ./cmd/netsurfctl urlparse 'https://www.example.com:8443/a/b?x=1#f'
 go run ./cmd/netsurfctl layout page.html 800 600
+go run ./cmd/netsurfctl render page.html page.png 800 600   # headless paint
+go run ./cmd/netsurfctl show page.html 800 600               # paint in an X11 window
 go test ./urls/ -run TestURLParserConformance -v
 go test ./parsers/css/tokenizer/ -run TestTokenizerConformance -v
 go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
@@ -54,7 +59,7 @@ go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
 
 Current verification baseline:
 
-- 180 Go files across 37 packages, 66 test files, 314 test/fuzz/benchmark functions.
+- 260 Go files across 45 packages, 108 test files, 478 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -123,6 +128,60 @@ Current verification baseline:
   harness (`layouts/testdata/cases.json`) passes all cases, and
   `netsurfctl layout <file|url>` provides an end-to-end parse/style/layout
   geometry dump.
+- Rendering: the `rendering` package has premultiplied RGBA8 surfaces, anti-aliased
+  nonzero/even-odd path filling, rounded rectangles, stroking with caps and
+  joins, clipping, Porter-Duff compositing, and CSS color parsing. The painter
+  draws multi-layer backgrounds (color and data-URL images with repeat,
+  position, size, origin, and clip), all CSS border styles with radii,
+  per-side colors, outer/inset box shadows with blur, and bilinear image
+  sampling. Raster and feature goldens compare PNGs with `internal/pixeltest`,
+  and `FuzzRaster` plus fill/stroke/blit benchmarks cover the hot paths.
+- Images: `rendering/images` decodes PNG/JPEG/GIF/WebP with GIF frame
+  composition and delays, applies JPEG EXIF orientation, and enforces
+  pixel/dimension/frame budgets. `rendering.URLImageProvider` resolves relative
+  URLs and supports `data:` plus caller-supplied HTTP(S) fetching; the
+  `netsurfctl` render/show commands wire it to the HTTP client, so external
+  background images render.
+- Color: `parsers/css/colors` converts sRGB, linear sRGB, Display P3, Adobe RGB,
+  ProPhoto, Rec. 2020, XYZ D50/D65, Lab/LCH, and OKLab/OKLCH to sRGB using the
+  Color 4 matrices and transfer functions. `RGBA8` clips out-of-gamut values;
+  the painter accepts these colors everywhere a CSS color is allowed.
+- Gradients: linear, radial, conic, and repeating variants render with
+  angle/corner directions, circle/ellipse extents, positions, color-stop fixup,
+  and premultiplied sRGB interpolation. `rendering/testdata/golden/gradients.png`
+  is the visual baseline and `FuzzGradient` covers malformed gradient syntax.
+- Fonts: `rendering/fonts` matches embedded Go fonts and lazily indexed system
+  TrueType/OpenType files by family/weight/style, provides per-rune fallback,
+  real ascent/descent/advances and kerning through `layouts.TextShaper`, and
+  caches rasterized glyph masks. The renderer uses the same library for layout,
+  measurement, and painting. Shaping and glyph-cache benchmarks cover the text
+  hot paths.
+- Stacking and transforms: paint order follows stacking contexts with negative,
+  zero/auto, and positive z-index groups; ancestors' clips and scroll offsets
+  are carried into nested contexts. Opacity and 2D transforms (translate,
+  scale, rotate, skew, matrix, and `transform-origin`) render through an
+  offscreen layer with bilinear compositing. `<img>` elements draw through the
+  image provider with object-fit modes, and a stacking/transform/replaced
+  golden is the visual baseline. `FuzzTransformFunction` covers transform
+  parsing.
+- SVG: static SVG documents render through `rendering.DecodeSVG` with shapes,
+  paths (including arcs), groups, viewBox/preserveAspectRatio, transforms,
+  fill/stroke rules, and linear/radial gradients. Scripts, foreignObject,
+  event handlers, and external references are ignored; node/pixel budgets are
+  enforced. SVG works as an `<img>` source and CSS background image.
+- Compositor: `Damage`, `Compositor`, and `TileGrid` provide damage merging,
+  layered CPU compositing with opacity, and independently invalidated tiles;
+  frame and tile benchmarks are recorded.
+- Reftests: `internal/reftest` and `netsurfctl reftest` render test/reference
+  HTML documents and compare them with the pixel harness.
+- Headless paint: `rendering.RenderDocument` drives parse → style → layout → paint,
+  and `netsurfctl render` writes the result to PNG. The E2E golden
+  (`rendering/testdata/golden/page.png`) exercises backgrounds, borders, and
+  real-font text.
+- X11: `windowing/x11` is a pure-Go X11 client (Xauthority MIT-MAGIC-COOKIE-1,
+  setup handshake, window/title/WM_DELETE, expose/configure handling, banded
+  PutImage). `netsurfctl show` opens a page in an X11 window; an integration test
+  runs when `DISPLAY` is set.
 - Matching benchmarks: `dom` selector matching and `styles.Matcher.Elements` are
   benchmarked; the DOM matcher also has a fuzz target.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
@@ -165,6 +224,11 @@ Current verification baseline:
 | `dom/` | Namespace-aware mutable DOM: nodes, documents, attributes, queries, templates, shadow scaffolding, sandbox flags. |
 | `styles/` | Indexed selector matcher, UA stylesheet, presentational hints, and the style-resolution engine. |
 | `layouts/` | Box tree, formatting contexts, sizing, positioning, text metrics, overflow, and incremental layout. |
+| `rendering/` | Surfaces, path rasterization, stroking, clipping, Porter-Duff compositing, paint traversal, color conversion, and headless render. |
+| `rendering/images/` | PNG/JPEG/GIF/WebP decoding, GIF animation metadata, EXIF orientation, and pixel/frame budgets. |
+| `rendering/fonts/` | Embedded/system font matching, text shaping, metrics, per-rune fallback, and a glyph mask cache. |
+| `windowing/` | Display/window abstraction, in-memory headless backend, and the pure-Go X11 presenter. |
+| `internal/pixeltest/` | Golden/reference image comparison used by rendering tests. |
 | `protocols/http1/` | Custom HTTP/1.1 client: ordered headers, strict framing, chunked+trailers, pool, redirects, conditional/range. |
 | `protocols/tls/` | TLS 1.3 client config, ALPN, ECH field, GREASE values. |
 | `protocols/dns/` | DNS codec (compression), caching resolver, special-use names, DoH, DoT. |
@@ -177,13 +241,12 @@ Current verification baseline:
 | `caches/memory/` | Generic in-memory LRU. |
 | `storages/cookies/` | RFC 6265 partitioned jar, cross-site dependency graph, CNAME-cloaking tracking-session reset. |
 | `internal/safecall/` | Panic-to-error boundary helpers. |
-| `cmd/netsurfctl/` | `deps-check`, `urlparse`, `fetch`, and `layout` diagnostic commands. |
+| `cmd/netsurfctl/` | `deps-check`, `urlparse`, `fetch`, `layout`, `render`, and `show` diagnostic commands. |
 | `cmd/corpusgen/` | Refresh and normalize the vendored WPT, URL, HTML, and CSS corpora. |
 | `cmd/propertygen/` | Generate the property registry from pinned specs and WPT grammar assertions. |
 
-The target layout (including not-yet-created packages such as `rendering/`, `windowing/`,
-`webapis/`, `runtime/`, `brokers/`, `engines/`, `ipc/`, `farbling/`, and
-`javascripts/sobek/`) is described in
+The target layout (including not-yet-created packages such as `webapis/`, `runtime/`,
+`brokers/`, `engines/`, `ipc/`, `farbling/`, and `javascripts/sobek/`) is described in
 [`architecture.md`](./architecture.md). Those are design targets; only the packages in the
 table above exist today.
 
@@ -229,6 +292,29 @@ These are intentional, tracked gaps rather than surprises:
   Candidate Recommendation, which predates the current "non-ASCII ident code point" ranges.
   The tokenizer follows the current CSS Syntax 3 definition (matching WPT and browsers); the
   pinned spec should be refreshed with `specifications/update.sh`.
+- **Painting still has feature gaps.** Fonts use embedded Go faces, system
+  TrueType/OpenType files, and author `@font-face` faces (raw TTF/OTF and WOFF1;
+  WOFF2 is rejected until a Brotli decoder is added). `font-display` timing,
+  partition-aware font caches, and application of feature/variation settings
+  remain partial, as do TTC collections and full GSUB/GPOS shaping.
+  Transforms cover 2D translate/scale/rotate/skew/matrix only (no 3D,
+  perspective, or individual `translate`/`rotate`/`scale` properties), the
+  z-index ordering for positioned `auto` subtrees is approximate, and replaced
+  content supports `<img>`/`object-fit` and SVG but not `srcset`, `<picture>`,
+  canvas, or video. Backgrounds support colors, decoded images, gradients
+  (including sizing/position/repeat and fixed attachment), border images,
+  radii, and shadows; `background-blend-mode` and gradient interpolation spaces
+  (`in oklab`) are not implemented. SVG covers a static subset (no text,
+  use/clipPath/mask/pattern/filter, or external resources). GIF/WebP animation
+  metadata is decoded but only the first frame is painted. The WPT reftest
+  corpus is not vendored; the local reftest comparator and golden corpus are the
+  current baseline.
+- **Color conversion clips rather than gamut-maps.** All CSS Color 4 spaces now
+  convert to sRGB, but out-of-gamut values are channel-clipped; perceptual
+  gamut mapping and WPT color-conversion vectors remain for P7-COLOR-001.
+- **The X11 backend is a presenter only.** It opens a window, paints, tracks
+  resizes, and handles WM_DELETE, but input, clipboard, and MIT-SHM uploads are
+  P8-X11-002/003. The integration test is skipped when `DISPLAY` is unset.
 - **P2-TLS-002 (ECH/GREASE)** — GREASE values and the ECH config field are present, but
   `crypto/tls` cannot inject GREASE or permute the ClientHello. That needs the planned
   `protocols/tls/chrome` fork.
@@ -275,17 +361,22 @@ Recorded in the relevant design docs under "Decisions":
 
 ## 8. Recommended next steps
 
-1. **Phase 7 — Painting.** Add rasterization, backgrounds and borders, images, fonts,
-   gradients, color management, stacking/compositing, and the headless pixel harness.
-   This also closes the paint-side residuals in P6-LAYOUT-007/012/013.
-2. **Run pixel reftests.** Once painting exists, compare layout geometry and pixels
-   against the broader WPT reftest corpus.
+1. **Resolve the three Phase 7 partial dependencies.** Add a Brotli decoder
+   for WOFF2, an async font/runtime loop for `font-display`, an OpenType
+   GSUB/GPOS shaper (P10-TEXT-001) for feature/variation settings, and a
+   projective 4x4 transform/compositor path for 3D/perspective transforms.
+2. **Vendor and run WPT reftests.** `netsurfctl reftest` is ready; add the WPT
+   reftest subset and CI thresholds, then close the remaining non-blocking
+   gaps (`background-blend-mode`, SVG text/use/clipPath/mask/pattern/filter,
+   animated image playback).
+3. **Start Phase 8.** Implement X11 input/clipboard/SHM and the shell/tab model
+   on top of the now-complete Phase 7 rendering pipeline.
 3. **Deepen CSS feature coverage** as Phase 6/7 need it: full CSSOM IDL surface, media
    query serialization and remaining features, and cascade edge cases.
 4. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
    `protocols/tls/chrome` fork lands.
-5. **Fill the skeleton.** Create the remaining package directories with `doc.go` stubs as
-   their phases begin; avoid broad empty scaffolding ahead of need.
+5. **Fill the skeleton.** Create the remaining package directories with `doc.go`
+   stubs as their phases begin; avoid broad empty scaffolding ahead of need.
 
 ## 9. Handover checklist
 

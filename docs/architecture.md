@@ -225,3 +225,6 @@ cannot correlate visits across different first-party sites.
 - **D-ARCH-004:** DOM package is `dom` (singular). Plural convention applies to category
   packages (`parsers`, `protocols`, `caches`, `storages`, `layouts`, `windowing`).
 - **D-ARCH-005:** Module path is `gonetsurf` with no host prefix.
+- **D-ARCH-006:** Package skeletons are created when their phase begins, not as a single
+  up-front tree of empty stubs. Every package carries a package doc comment; `cmd/*`
+  packages use `// Command <name>` and libraries use `// Package <name>`.

@@ -21,8 +21,17 @@ work.
 > kerning, scrollbar-aware overflow, and dirty-subtree reflow with clean-subtree reuse
 > are implemented. Eleven Phase 6 tasks are `Verified`; P6-LAYOUT-007/012/013 remain
 > `Partial` only for Phase 7 paint/font artifacts. A 35-case geometry conformance
-> harness and `netsurfctl layout` cover the pipeline. See
-> [`handover.md`](./handover.md) for the status and gaps.
+> harness and `netsurfctl layout` cover the pipeline. Phase 7 has started: the
+> `rendering` rasterizer is `Verified`, backgrounds/borders/radii/shadows,
+> PNG/JPEG/GIF/WebP image decoding, Color 4 conversions, linear/radial/conic
+> gradients, real font matching/shaping/glyph caching, and stacking/opacity/2D
+> transforms with replaced images, @font-face, SVG, and compositor/damage
+> tracking are implemented; the headless renderer, pixel comparator, and
+> reftest runner are implemented (`netsurfctl render`, `netsurfctl reftest`),
+> and the early X11 presenter slice renders pages in a window (`netsurfctl show`).
+> Phase 7 is complete: 10 tasks Verified, 3 Partial with recorded dependencies
+> (WOFF2/Brotli, font-display timing, OpenType features, 3D transforms). See [`handover.md`](./handover.md) for the
+> status and gaps.
 
 ## How to read a task
 
@@ -54,8 +63,11 @@ before any feature code.
 ### Tasks
 
 - **P0-CORE-001** Module and directory skeleton.
-  - Deliverable: `go.mod` (`module gonetsurf`), package directories, `doc.go` per package.
-  - Acceptance: `go build ./...` and `go vet ./...` succeed.
+  - Deliverable: `go.mod` (`module gonetsurf`) and package directories created as their
+    phase begins, each with a package doc comment (`cmd/*` use `// Command`, libraries use
+    `// Package`). Broad empty scaffolding is intentionally avoided (D-ARCH-006).
+  - Acceptance: `go build ./...` and `go vet ./...` succeed, and every package carries a
+    package doc comment.
   - Spec: N/A.
 - **P0-CORE-002** Dependency policy check.
   - Deliverable: a `cmd/netsurfctl deps-check` subcommand plus a CI job that fails on any
@@ -556,6 +568,41 @@ the incremental path produces identical results to full layout.
   - Deliverable: `x/image/font/sfnt` + `x/image/font/opentype`; system font enumeration;
     glyph cache.
   - Acceptance: glyph raster tests across fallback chains.
+  - Spec: `specifications/css/css-fonts-4.html`.
+- **P7-FONT-002** `@font-face` rule parsing and descriptors.
+  - Depends on: P4-CSS-007, P7-FONT-001.
+  - Deliverable: an `@font-face` rule object in the CSSOM and parsing/serialization
+    for `font-family`, `src` (`url()`/`local()`/`format()`), `font-style`,
+    `font-weight`, `font-stretch`, `unicode-range`, `font-display`,
+    `font-feature-settings`, `font-variation-settings`, `size-adjust`,
+    `ascent-override`, `descent-override`, and `line-gap-override`. Invalid
+    descriptors and sources are rejected without discarding the whole rule.
+  - Acceptance: CSS Fonts 4 `@font-face` parsing corpus; invalid-descriptor
+    rejection; parse→serialize→parse stability; rule mutation tests.
+  - Spec: `specifications/css/css-fonts-4.html`.
+- **P7-FONT-003** Web-font loading, caching, and `font-display`.
+  - Depends on: P7-FONT-002; the Phase 9 network broker for production fetching.
+  - Deliverable: a font resource loader for raw TTF/OTF and WOFF (WOFF2 requires
+    a Brotli decoder and is explicitly out of scope until one is added); `local()`
+    lookup; a partitioned cache keyed by URL + descriptor set; `font-display`
+    (`auto`, `block`, `swap`, `fallback`, `optional`) behavior; load failures
+    falling back to the next `src`/system face. Network access goes through the
+    renderer's fetch provider until the broker lands, and cache keys include the
+    top-level site partition.
+  - Acceptance: loader/cache tests with local HTTP fixtures; `font-display`
+    timing tests; cross-site cache-isolation tests; malformed/oversized font
+    rejection; fallback-on-failure tests.
+  - Spec: `specifications/css/css-fonts-4.html`,
+    `specifications/web/fetch.html`, `privacy.md`.
+- **P7-FONT-004** Author-font matching and text features.
+  - Depends on: P7-FONT-002, P7-FONT-003.
+  - Deliverable: extend the font library with dynamically registered author
+    faces; matching across family/weight/stretch/style/`unicode-range`; per-face
+    glyph fallback; `font-feature-settings`, `font-variation-settings`, and
+    variable-axis selection; metric overrides. System and author faces share
+    one deterministic fallback chain.
+  - Acceptance: matching matrices, `unicode-range` fallback tests, variable-font
+    axis tests, feature-tag tests, and golden text rendering with a custom face.
   - Spec: `specifications/css/css-fonts-4.html`.
 - **P7-COLOR-001** Color management.
   - Deliverable: sRGB/display-p3/lab/lch conversions; premultiplied blending.

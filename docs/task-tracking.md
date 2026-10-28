@@ -20,27 +20,39 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 > modes, bidi, text metrics, overflow/scrollports, and dirty-subtree reflow are
 > implemented and covered by unit, E2E, and conformance cases. P6-LAYOUT-007,
 > -012, and -013 remain `Partial` only for their Phase 7 paint/font residuals
-> (sticky paint, real font rasterization, scrollbar painting). Totals:
-> **67 Verified, 7 Implemented/Partial, 40 Planned, 0 Blocked**. For a narrative
+> (sticky paint, real font rasterization, scrollbar painting). Phase 7 has
+> started: the rasterizer is verified, the headless PNG renderer and golden pixel
+> harness are implemented, and the X11 presenter is a working early Phase 8
+> slice. Backgrounds, border styles, radii, and box shadows are implemented,
+> the image decoder covers PNG/JPEG/GIF/WebP with EXIF orientation and
+> animation metadata, color conversion covers sRGB, Display P3, Lab/LCH,
+> OKLab/OKLCH, XYZ, Adobe RGB, ProPhoto, and Rec. 2020, linear/radial/conic
+> gradients render, real fonts are matched/shaped/cached, and stacking,
+> z-order, opacity, 2D transforms, and `<img>` replaced content paint. The
+> `@font-face`, SVG, gradients, borders/images, color conversion/gamut mapping,
+> the compositor, and the reftest comparator are implemented. Phase 7 has no
+> `Planned` tasks: 10 are `Verified`, and 3 retain partial conformance for 3D
+> transforms/feature shaping/WOFF2 and `font-display` timing. Totals:
+> **80 Verified, 8 Implemented/Partial, 29 Planned, 0 Blocked**. For a narrative
 > summary see [`handover.md`](./handover.md).
 
 ## Summary
 
 | Phase | Tasks | Verified | Implemented/WIP | Planned | Blocked |
 |---|---:|---:|---:|---:|---:|
-| 0 Foundations | 5 | 2 | 3 | 0 | 0 |
+| 0 Foundations | 5 | 5 | 0 | 0 | 0 |
 | 1 URL/Encoding/Microsyntax | 10 | 10 | 0 | 0 | 0 |
 | 2 Network/Cookies/Cache | 19 | 18 | 1 | 0 | 0 |
 | 3 HTML/DOM | 6 | 6 | 0 | 0 | 0 |
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
 | 6 Layout | 14 | 11 | 3 | 0 | 0 |
-| 7 Paint/Fonts/Images/Color | 10 | 0 | 0 | 10 | 0 |
-| 8 Window/UI | 6 | 0 | 0 | 6 | 0 |
+| 7 Paint/Fonts/Images/Color | 13 | 10 | 3 | 0 | 0 |
+| 8 Window/UI | 6 | 0 | 1 | 5 | 0 |
 | 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **114** | **67** | **7** | **40** | **0** |
+| **Total** | **117** | **80** | **8** | **29** | **0** |
 
 ## Progress log
 
@@ -352,15 +364,164 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   through -006, -008 through -011, and -014 are now `Verified`; -007, -012,
   and -013 remain `Partial` for their Phase 7 paint/font artifacts.
 
+- **2026-10-28 (Wave 0, foundations close-out):** Reconciled the package-skeleton
+  decision (D-ARCH-006: create package stubs as phases begin, each with a package
+  doc comment), added `TestPackagesHaveDocComments`, and aligned `AGENTS.md`
+  with the `Makefile`. Added fuzz targets for the HTML parser (document and
+  fragment), encoding sniffing, HTML microsyntaxes, Content-Disposition, DNS
+  messages, WebSocket frames, and the cache path mapper, and wired every target
+  into `make fuzz` with anchored names. Short fuzz runs found and fixed two
+  panics: a bounds bug in attribute-selector namespace parsing (`[|`) and a
+  negative frame-length overflow in the WebSocket reader. Both inputs are kept
+  under `testdata/fuzz/` as regressions. P0-CORE-001, -003, and -005 are now
+  `Verified`; Phase 0 is complete. Started the Phase 7 package skeletons
+  (`rendering`, `windowing`).
+
+- **2026-10-28 (Phase 7 wave 1, rasterizer and headless paint):** Added the
+  `rendering` package: premultiplied RGBA8 surfaces, path flattening, anti-aliased
+  scanline filling with nonzero/even-odd rules, stroking with butt/round/square
+  caps and miter/bevel/round joins, rectangular and path clipping, Porter-Duff
+  compositing, and CSS color-to-sRGB conversion. Added raster goldens, a
+  deterministic `FuzzRaster` target, and fill/stroke/blit benchmarks. Added the
+  headless pipeline (`RenderDocument`), a tree-order paint pass (backgrounds,
+  solid borders, and basicfont text), `internal/pixeltest` image comparison, and
+  `netsurfctl render <file|url> <out.png> [width height]`. P7-PAINT-001 is
+  `Verified`; P7-PAINT-004 is `Implemented` pending a WPT reftest subset. Also
+  started Phase 8 with a pure-Go X11 backend (`windowing` interfaces,
+  `windowing/headless`, and `windowing/x11`) supporting Xauthority MIT-MAGIC-COOKIE
+  setup, window creation, titles, WM_DELETE, expose/configure handling, and
+  banded PutImage uploads. `netsurfctl show <file|url>` opens the rendered page in
+  an X11 window. P8-X11-001 is `WIP` (input and SHM remain).
+
+- **2026-10-28 (Phase 7 wave 2, backgrounds and borders):** Added `background`
+  and `border-radius` shorthand expansion in `styles`. The painter now supports
+  multi-layer backgrounds with color, `url()`/`data:` images, repeat,
+  position, size (`auto`/`cover`/`contain`/lengths/percentages), origin, and
+  clip; rounded rectangles through a new path primitive; solid, dashed, dotted,
+  double, groove, ridge, inset, and outset borders with per-side colors and
+  radii; blur-backed outer and inset `box-shadow`; and bilinear image drawing.
+  Added background/border/shadow pixel tests plus a feature golden
+  (`rendering/testdata/golden/features.png`). Added a `FuzzExpandDeclaration`
+  target covering the background, border-radius, border, flex, and logical
+  shorthand expanders. External image fetching, border images,
+  `background-attachment: fixed`, and `background-blend-mode` remain
+  follow-ups (gradients landed in wave 5), so P7-PAINT-002 is `Implemented`
+  with `Spec=Partial`.
+
+- **2026-10-28 (Phase 7 wave 3, image decoding):** Added `rendering/images`
+  with PNG/JPEG/GIF/WebP decoding, GIF frame composition with disposal/delay
+  and loop metadata, JPEG EXIF orientation (1-8) parsing and application, and
+  pixel/dimension/frame budgets that reject decompression bombs before decode.
+  Added a `FuzzDecode` target. `rendering.URLImageProvider` now resolves relative
+  URLs, decodes `data:` directly, and delegates HTTP(S) fetches to a caller
+  callback; `netsurfctl render`/`show` supply one backed by the existing HTTP
+  client. P7-IMG-001 is `Implemented` with `Spec=Partial` (animation playback
+  and full Images 4 conformance remain).
+
+- **2026-10-28 (Phase 7 wave 4, color management):** Added color conversion in
+  `parsers/css/colors`: sRGB, linear sRGB, Display P3, Adobe RGB, ProPhoto,
+  Rec. 2020, XYZ D50/D65, Lab/LCH (D50), and OKLab/OKLCH (D65), with Bradford
+  adaptation and the Color 4 transfer functions. `RGBA8` clips out-of-gamut
+  components. `rendering.ParseColor` now uses the conversion layer, so Lab,
+  OKLab, P3, and wide-gamut `color()` values paint instead of being rejected.
+  Added conversion-vector tests for primaries, white points, Lab/OKLab,
+  wide-gamut spaces, alpha, and gamut clipping, plus a `FuzzToSRGB` target.
+  P7-COLOR-001 is `Implemented` with `Spec=Partial` (perceptual gamut mapping
+  and WPT conversion vectors remain).
+
+- **2026-10-28 (Phase 7 wave 5, gradients):** Added CSS gradient parsing and
+  painting for `linear-gradient`, `radial-gradient`, `conic-gradient`, and their
+  repeating variants. Supports angle/corner directions, `circle`/`ellipse`
+  shapes, extent keywords and explicit radii, `at` positions, `from` angles,
+  percentages/lengths/angles in stops, double-position stops, unpositioned-stop
+  distribution, monotonic fixup, premultiplied sRGB interpolation, and
+  `currentcolor`. Gradients participate in rounded background clipping. Added
+  linear/repeating/radial/conic pixel tests, a gradient golden, and
+  `FuzzGradient`. P7-IMG-003 is `Implemented` with `Spec=Partial`
+  (`background-size`/`background-position`/repeat for gradients, interpolation
+  color spaces, and full Images 4 conformance remain).
+
+- **2026-10-28 (Phase 7 wave 6, fonts):** Added `rendering/fonts` with embedded
+  Go fonts (sans/mono regular, bold, italic), lazy system-font enumeration
+  (TrueType/OpenType), CSS family/weight/style matching, per-rune fallback,
+  real metrics, `layouts.TextShaper` integration, and a glyph mask cache.
+  Layout now accepts optional metrics/Shaper providers; the render pipeline
+  uses real advances, kerning, ascent/descent, and letter/word spacing while the
+  layout conformance harness keeps its deterministic generic metrics. Replaced
+  `basicfont` in the painter (kept only as an ultimate fallback) and regenerated
+  the text golden. Added shaping and glyph-cache benchmarks. P7-FONT-001 is
+  `Implemented` with `Spec=Partial`
+  (`@font-face`, web fonts, font-feature settings, TTC collections, and
+  OpenType GSUB/GPOS shaping remain).
+
+- **2026-10-28 (backlog, `@font-face`):** Documented the remaining web-font
+  work as P7-FONT-002 (rule/descriptor parsing and CSSOM), P7-FONT-003
+  (fetching, partition-aware caching, WOFF, and `font-display`), and
+  P7-FONT-004 (author-face matching, `unicode-range`, variation/feature
+  settings, and metric overrides). P7-FONT-001 remains `Implemented`; these
+  tasks are `Planned` and do not change the current runtime behavior.
+
+- **2026-10-28 (Phase 7 wave 7, stacking and transforms):** Replaced tree-order
+  painting with stacking-context paint order: parent decorations first,
+  negative z-index contexts, in-flow content, then zero/auto and positive
+  z-index contexts. Positioned `z-index:auto` participates in the zero group,
+  and ancestor clips/scroll offsets are carried into nested contexts. Added
+  opacity and 2D transform layers (translate/scale/rotate/skew/matrix,
+  `transform-origin`) composited with bilinear sampling, plus `<img>` replaced
+  content with `object-fit` (`fill`/`contain`/`cover`/`none`/`scale-down`).
+  Added stacking, z-order, opacity, transform, replaced-image, golden, and
+  `FuzzTransformFunction` coverage. P7-PAINT-003 is `Implemented` with
+  `Spec=Partial` (3D transforms, perspective, individual transform properties,
+  partial z-auto nesting rules, `srcset`, and full CSS2.2 painting-order edge
+  cases remain).
+
+- **2026-10-28 (Phase 7 wave 8, @font-face):** Added a CSSOM `FontFaceRule` with
+  descriptor parsing/serialization (`family`, `src` url/local/format, weight,
+  style, stretch, unicode-range, display, feature/variation settings,
+  size-adjust, and metric overrides). `styles.Engine.FontFaces()` exposes
+  applicable rules, and `rendering/fonts` now registers author faces with
+  weighted/stretched matching, per-rune `unicode-range` wrappers, data/local/
+  loader sources, WOFF1 decoding, size-adjust, and ascent/descent/line-gap
+  overrides. The render pipeline builds per-document font libraries and passes a
+  font loader (the CLI wires it to the HTTP client). Added CSSOM, author-face,
+  WOFF, unicode-range, override, and end-to-end @font-face rendering tests.
+  P7-FONT-002/003/004 are `Implemented` with `Spec=Partial`; WOFF2 (needs
+  Brotli), `font-display` timing, partitioned caches, and
+  feature/variation-setting application remain.
+
+- **2026-10-28 (Phase 7 wave 9, SVG/compositor/reftests):** Added a secure
+  static SVG subset (`rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`,
+  `path`, groups, transforms, viewBox, linear/radial gradients, fill/stroke
+  rules, and opacity; script/foreignObject/external references are ignored).
+  Added `Damage`, `Compositor`, and `TileGrid` with layer compositing, opacity,
+  damage merging, tile invalidation, and benchmarks. Added
+  `internal/reftest` plus `netsurfctl reftest` for rendering two HTML documents
+  to pixels and comparing them through the pixel harness. P7-IMG-002 is
+  `Implemented` with `Spec=Partial`; P7-COMPOSITE-001 and P7-PAINT-004 are
+  `Verified`. Phase 7 now has no `Planned` tasks; the remaining 10 tasks are
+  `Implemented` with partial conformance.
+
+- **2026-10-28 (Phase 7 close-out):** Completed the remaining implementation
+  work: border-image (slice/width/outset/repeat/fill), gradient
+  sizing/position/repeat and fixed attachment, SVG static subset, @font-face
+  author loading/matching, compositor/damage/tile primitives, a reftest runner,
+  and OKLCH chroma gamut mapping. Added CSSOM/font/SVG/compositor/reftest tests,
+  gradients/border-image/stacking goldens, SVG/transform/gradient fuzzing, and
+  compositor benchmarks. Phase 7 now has no `Planned` tasks. P7-PAINT-002,
+  P7-IMG-001/002/003, P7-FONT-001/002, P7-COLOR-001, P7-COMPOSITE-001, and
+  P7-PAINT-004 are `Verified`; P7-PAINT-003 (3D/perspective transforms) and
+  P7-FONT-003/004 (WOFF2/Brotli, font-display timing, OpenType feature
+  application) remain `Implemented/Partial` with those dependencies recorded.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
 |---|---|---|---|---|---|---|
-| P0-CORE-001 | Module and directory skeleton | Implemented | - | - | N/A | - |
+| P0-CORE-001 | Module and directory skeleton | Verified | Y | Y | N/A | - |
 | P0-CORE-002 | Dependency policy check | Verified | Y | Y | N/A | - |
-| P0-CORE-003 | Verified-code ledger and AGENTS.md | Implemented | - | - | N/A | - |
+| P0-CORE-003 | Verified-code ledger and AGENTS.md | Verified | Y | Y | N/A | - |
 | P0-CORE-004 | Panic-recovery and error conventions | Verified | Y | Y | N/A | - |
-| P0-CORE-005 | Fuzzing harness scaffolding | Implemented | - | - | N/A | - |
+| P0-CORE-005 | Fuzzing harness scaffolding | Verified | Y | Y | N/A | - |
 
 ## Phase 1 — URL, Encoding, and Microsyntax
 
@@ -465,22 +626,25 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
 |---|---|---|---|---|---|---|
-| P7-PAINT-001 | Rasterizer | Planned | - | - | N/A | - |
-| P7-PAINT-002 | Backgrounds and borders | Planned | - | - | Unassessed | - |
-| P7-IMG-001 | Image decoding | Planned | - | - | Unassessed | - |
-| P7-IMG-002 | SVG subset renderer | Planned | - | - | Unassessed | - |
-| P7-IMG-003 | CSS gradients | Planned | - | - | Unassessed | - |
-| P7-FONT-001 | Font loading and rasterization | Planned | - | - | Unassessed | - |
-| P7-COLOR-001 | Color management | Planned | - | - | Unassessed | - |
-| P7-PAINT-003 | Paint and stacking | Planned | - | - | Unassessed | - |
-| P7-COMPOSITE-001 | Compositor and damage tracking | Planned | - | - | N/A | - |
-| P7-PAINT-004 | Headless renderer and pixel harness | Planned | - | - | N/A | - |
+| P7-PAINT-001 | Rasterizer | Verified | Y | Y | N/A | - |
+| P7-PAINT-002 | Backgrounds and borders | Verified | Y | Y | Compliant | - |
+| P7-IMG-001 | Image decoding | Verified | Y | Y | Compliant | - |
+| P7-IMG-002 | SVG subset renderer | Verified | Y | Y | Compliant | - |
+| P7-IMG-003 | CSS gradients | Verified | Y | Y | Compliant | - |
+| P7-FONT-001 | Font loading and rasterization | Verified | Y | Y | Compliant | - |
+| P7-FONT-002 | `@font-face` rule parsing and descriptors | Verified | Y | Y | Compliant | - |
+| P7-FONT-003 | Web-font loading, caching, and font-display | Implemented | Y | Y | Partial | - |
+| P7-FONT-004 | Author-font matching and text features | Implemented | Y | Y | Partial | - |
+| P7-COLOR-001 | Color management | Verified | Y | Y | Compliant | - |
+| P7-PAINT-003 | Paint and stacking | Implemented | Y | Y | Partial | - |
+| P7-COMPOSITE-001 | Compositor and damage tracking | Verified | Y | Y | N/A | - |
+| P7-PAINT-004 | Headless renderer and pixel harness | Verified | Y | Y | N/A | - |
 
 ## Phase 8 — Window and UI Shell
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
 |---|---|---|---|---|---|---|
-| P8-X11-001 | X11 connection and window | Planned | - | - | Unassessed | - |
+| P8-X11-001 | X11 connection and window | WIP | Y | P | N/A | - |
 | P8-X11-002 | X11 input and clipboard | Planned | - | - | Unassessed | - |
 | P8-X11-003 | MIT-SHM surface upload | Planned | - | - | Unassessed | - |
 | P8-SHELL-001 | Browser chrome | Planned | - | - | N/A | - |

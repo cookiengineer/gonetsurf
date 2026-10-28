@@ -25,7 +25,18 @@ logical properties, vertical flow, line-level bidi, generic-family text metrics 
 kerning, scrollbar-aware overflow, and dirty-subtree reflow all exist. A 35-case
 data-driven layout conformance harness passes, and `netsurfctl layout` exposes the full
 parse → style → layout pipeline for diagnostics. Three tasks (P6-LAYOUT-007/012/013)
-remain Partial only for their Phase 7 paint/font residuals. Phase 7 painting is next.
+remain Partial only for their Phase 7 paint/font residuals. Phase 7 painting has started:
+the `rendering` rasterizer is Verified (surfaces, paths, anti-aliasing, stroking,
+clipping, Porter-Duff), backgrounds/borders/radii/shadows, PNG/JPEG/GIF/WebP image
+decoding, Color 4 conversions (sRGB, Display P3, Lab/LCH, OKLab/OKLCH, and
+wide-gamut color spaces), linear/radial/conic gradients, real font matching/
+shaping/glyph caching, `@font-face`, SVG, stacking/opacity/2D transforms with
+replaced images, and compositor/damage tracking are implemented; the headless PNG
+renderer, golden pixel harness, and reftest comparator are implemented
+(`netsurfctl render`, `netsurfctl reftest`), and a pure-Go X11 presenter opens
+rendered pages (`netsurfctl show`). Phase 7 is complete: 10 tasks Verified and
+3 Partial with recorded dependencies (WOFF2/Brotli, font-display timing,
+OpenType features, 3D transforms). Phase 8's X11 window slice is WIP; input and shared memory remain.
 See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 
