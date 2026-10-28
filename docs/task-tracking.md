@@ -306,6 +306,33 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   visual order without losing source content. Mixed-run line layout remains a
   refinement.
 
+- **2026-10-28 (Phase 6 vertical blocks):** Added basic vertical-mode block
+  flow: vertical-rl stacks block children right-to-left, vertical-lr left-to-right.
+  Vertical inline line flow and sideways text orientation remain refinements, so
+  P6-LAYOUT-010 stays `Implemented`/`Partial`.
+
+- **2026-10-28 (Phase 6 vertical inline):** Added vertical inline line flow for
+  `writing-mode:vertical-*`: words advance top-to-bottom, lines advance
+  right-to-left or left-to-right, and wrapping starts a new column. Sideways text
+  orientation and rotated glyph rendering remain refinements.
+
+- **2026-10-28 (Phase 6 sticky):** Added scrollport size helpers and
+  `StickyOffset`, which clamps sticky boxes to the visible scrollport and their
+  containing block for a given scroll position. Sticky paint integration remains
+  a Phase 7 concern.
+
+- **2026-10-28 (Phase 6 reftests/rotation):** Expanded the layout conformance
+  harness to 15 cases (relative positioning, flex grow, explicit grid placement,
+  explicit table width, vertical block flow, overflow scroll size) and fixed
+  column-only/row-only grid placement. Added text-rotation metadata for vertical
+  and sideways writing modes.
+
+- **2026-10-28 (Phase 6 structural invalidation):** Added
+  `Document.StructuralVersion`, incremented only by tree-shape changes.
+  `DocumentLayout` now reuses the box tree for style-only mutations, refreshes
+  box styles/metrics/edges, and reruns layout; structural mutations rebuild the
+  tree. True dirty-subtree reflow remains a refinement.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |

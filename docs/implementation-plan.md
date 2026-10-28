@@ -17,10 +17,13 @@ work.
 > intrinsic sizing, block layout with sibling/parent-child margin collapsing, simple
 > inline line layout, relative/absolute/fixed positioning, basic flexbox, tables, grid,
 > floats, simple text shaping, overflow metadata, logical property mapping, bidi run
-> segmentation with basic RTL word and per-character visual ordering, and a
-> mutation-versioned layout cache are implemented, along with row flex wrapping, baseline
-> alignment, simple font metrics, and scroll-container offsets/clipping. All 14 Phase 6 tasks now exist, and a data-driven layout
-> conformance harness covers the foundation scenarios;
+> segmentation with basic RTL word and per-character visual ordering, basic vertical-mode
+> block and inline text flow with rotation metadata, sticky scroll-clamped offsets, and a
+> mutation-versioned layout cache that reuses box trees for style-only changes are
+> implemented, along with row flex wrapping, baseline alignment, simple font metrics, and
+> scroll-container offsets/clipping. All 14 Phase 6
+> tasks now exist, and a 15-case data-driven layout conformance harness covers the
+> foundation scenarios;
 > broader verification and refinements are next. See [`handover.md`](./handover.md) for
 > the status and gaps.
 
