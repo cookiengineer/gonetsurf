@@ -12,22 +12,75 @@ import (
 // Environment describes the device and user preferences a media query is
 // evaluated against.
 type Environment struct {
-	MediaType            string
-	Width                float64
-	Height               float64
-	Resolution           float64
-	PrefersColorScheme   string
-	PrefersReducedMotion string
-	ForcedColors         bool
+	MediaType                  string
+	Width                      float64
+	Height                     float64
+	Resolution                 float64
+	Color                      int
+	ColorIndex                 int
+	Monochrome                 int
+	Grid                       bool
+	Scan                       string
+	Update                     string
+	OverflowBlock              string
+	OverflowInline             string
+	Pointer                    string
+	AnyPointer                 string
+	Hover                      string
+	AnyHover                   string
+	PrefersColorScheme         string
+	PrefersReducedMotion       string
+	PrefersContrast            string
+	PrefersReducedData         string
+	PrefersReducedTransparency string
+	ForcedColors               bool
+	InvertedColors             bool
+	DisplayMode                string
+	DynamicRange               string
+	VideoDynamicRange          string
+	Scripting                  string
+	ColorGamut                 string
+	VideoColorGamut            string
+	EnvironmentBlending        string
+	DevicePosture              string
+	NavControls                string
+	HorizontalViewportSegments int
+	VerticalViewportSegments   int
 }
 
 // DefaultEnvironment returns a reasonable desktop environment.
 func DefaultEnvironment() Environment {
 	return Environment{
-		MediaType:  "screen",
-		Width:      1280,
-		Height:     720,
-		Resolution: 1,
+		MediaType:                  "screen",
+		Width:                      1280,
+		Height:                     720,
+		Resolution:                 1,
+		Color:                      8,
+		Grid:                       false,
+		Scan:                       "progressive",
+		Update:                     "fast",
+		OverflowBlock:              "scroll",
+		OverflowInline:             "scroll",
+		Pointer:                    "fine",
+		AnyPointer:                 "fine",
+		Hover:                      "hover",
+		AnyHover:                   "hover",
+		PrefersColorScheme:         "light",
+		PrefersReducedMotion:       "no-preference",
+		PrefersContrast:            "no-preference",
+		PrefersReducedData:         "no-preference",
+		PrefersReducedTransparency: "no-preference",
+		DisplayMode:                "browser",
+		DynamicRange:               "standard",
+		VideoDynamicRange:          "standard",
+		Scripting:                  "enabled",
+		ColorGamut:                 "srgb",
+		VideoColorGamut:            "srgb",
+		EnvironmentBlending:        "opaque",
+		DevicePosture:              "continuous",
+		NavControls:                "none",
+		HorizontalViewportSegments: 1,
+		VerticalViewportSegments:   1,
 	}
 }
 
@@ -57,16 +110,33 @@ func Parse(input string) (*QueryList, error) {
 	groups := splitCommas(values)
 	list := &QueryList{}
 	for _, group := range groups {
-		query, err := parseQuery(group)
-		if err != nil {
-			return nil, err
+		for _, orGroup := range splitOr(group) {
+			query, err := parseQuery(orGroup)
+			if err != nil {
+				return nil, err
+			}
+			list.Queries = append(list.Queries, *query)
 		}
-		list.Queries = append(list.Queries, *query)
 	}
 	if len(list.Queries) == 0 {
 		return nil, fmt.Errorf("css mediaqueries: empty query list")
 	}
 	return list, nil
+}
+
+func splitOr(values []parser.ComponentValue) [][]parser.ComponentValue {
+	groups := [][]parser.ComponentValue{}
+	current := []parser.ComponentValue{}
+	for _, value := range values {
+		if token, ok := parser.AsToken(value); ok && token.Type == tokenizer.TokenIdent && strings.EqualFold(token.Value, "or") {
+			groups = append(groups, current)
+			current = nil
+			continue
+		}
+		current = append(current, value)
+	}
+	groups = append(groups, current)
+	return groups
 }
 
 func splitCommas(values []parser.ComponentValue) [][]parser.ComponentValue {
@@ -129,11 +199,11 @@ func parseQuery(values []parser.ComponentValue) (*Query, error) {
 		if !ok || block.Associated != tokenizer.TokenOpenParen {
 			return nil, fmt.Errorf("css mediaqueries: expected a feature")
 		}
-		feature, err := parseFeature(block.Value)
+		features, err := parseFeature(block.Value)
 		if err != nil {
 			return nil, err
 		}
-		query.Features = append(query.Features, *feature)
+		query.Features = append(query.Features, features...)
 		index++
 	}
 	if query.Type == "" {
@@ -142,41 +212,114 @@ func parseQuery(values []parser.ComponentValue) (*Query, error) {
 	return query, nil
 }
 
-func parseFeature(values []parser.ComponentValue) (*Feature, error) {
+func parseFeature(values []parser.ComponentValue) ([]Feature, error) {
 	trimmed := trimWhitespace(values)
 	if len(trimmed) == 0 {
 		return nil, fmt.Errorf("css mediaqueries: empty feature")
 	}
-	nameToken, ok := parser.AsToken(trimmed[0])
+	if token, ok := parser.AsToken(trimmed[0]); ok && token.Type == tokenizer.TokenIdent {
+		feature := Feature{Name: strings.ToLower(token.Value)}
+		rest := trimWhitespace(trimmed[1:])
+		if len(rest) == 0 {
+			return []Feature{feature}, nil
+		}
+		if token, ok := parser.AsToken(rest[0]); ok && token.Type == tokenizer.TokenColon {
+			feature.Value = strings.TrimSpace(parser.SerializeValues(rest[1:]))
+			return []Feature{feature}, nil
+		}
+		if operator, length, ok := matchComparisonOperator(rest); ok {
+			feature.Operator = operator
+			feature.Value = strings.TrimSpace(parser.SerializeValues(rest[length:]))
+			return []Feature{feature}, nil
+		}
+		feature.Value = strings.TrimSpace(parser.SerializeValues(rest))
+		return []Feature{feature}, nil
+	}
+	operatorIndex, operator, operatorLength, ok := findComparisonOperator(trimmed)
+	if !ok {
+		return nil, fmt.Errorf("css mediaqueries: expected feature name")
+	}
+	lower := strings.TrimSpace(parser.SerializeValues(trimmed[:operatorIndex]))
+	cursor := skipWhitespaceFrom(trimmed, operatorIndex+operatorLength)
+	if cursor >= len(trimmed) {
+		return nil, fmt.Errorf("css mediaqueries: expected feature name")
+	}
+	nameToken, ok := parser.AsToken(trimmed[cursor])
 	if !ok || nameToken.Type != tokenizer.TokenIdent {
 		return nil, fmt.Errorf("css mediaqueries: expected feature name")
 	}
-	feature := &Feature{Name: strings.ToLower(nameToken.Value)}
-	rest := trimWhitespace(trimmed[1:])
-	if len(rest) == 0 {
-		return feature, nil
+	name := strings.ToLower(nameToken.Value)
+	features := []Feature{{Name: name, Operator: reverseOperator(operator), Value: lower}}
+	cursor = skipWhitespaceFrom(trimmed, cursor+1)
+	if cursor < len(trimmed) {
+		secondOperator, length, ok := matchComparisonOperator(trimmed[cursor:])
+		if !ok {
+			return nil, fmt.Errorf("css mediaqueries: expected range operator")
+		}
+		cursor = skipWhitespaceFrom(trimmed, cursor+length)
+		upper := strings.TrimSpace(parser.SerializeValues(trimmed[cursor:]))
+		features = append(features, Feature{Name: name, Operator: secondOperator, Value: upper})
 	}
-	// Handle "(width >= 600px)" by detecting an operator delimiter.
-	if token, isToken := parser.AsToken(rest[0]); isToken && token.Type == tokenizer.TokenDelim {
+	return features, nil
+}
+
+func findComparisonOperator(values []parser.ComponentValue) (int, string, int, bool) {
+	for index := 0; index < len(values); index++ {
+		if parser.IsWhitespace(values[index]) {
+			continue
+		}
+		operator, length, ok := matchComparisonOperator(values[index:])
+		if ok {
+			return index, operator, length, true
+		}
+	}
+	return 0, "", 0, false
+}
+
+func matchComparisonOperator(values []parser.ComponentValue) (string, int, bool) {
+	if len(values) == 0 {
+		return "", 0, false
+	}
+	token, ok := parser.AsToken(values[0])
+	if !ok || token.Type != tokenizer.TokenDelim {
+		return "", 0, false
+	}
+	switch token.Value {
+	case "=":
+		return "=", 1, true
+	case "<", ">":
 		operator := token.Value
-		rest = rest[1:]
-		if len(rest) > 0 {
-			if next, isNext := parser.AsToken(rest[0]); isNext && next.Type == tokenizer.TokenDelim && next.Value == "=" {
-				operator += "="
-				rest = rest[1:]
+		if len(values) > 1 {
+			if next, ok := parser.AsToken(values[1]); ok && next.Type == tokenizer.TokenDelim && next.Value == "=" {
+				return operator + "=", 2, true
 			}
 		}
-		feature.Operator = operator
-		feature.Value = strings.TrimSpace(parser.SerializeValues(rest))
-		return feature, nil
+		return operator, 1, true
+	default:
+		return "", 0, false
 	}
-	if token, isToken := parser.AsToken(rest[0]); isToken && token.Type == tokenizer.TokenColon {
-		rest = rest[1:]
-		feature.Value = strings.TrimSpace(parser.SerializeValues(rest))
-		return feature, nil
+}
+
+func reverseOperator(operator string) string {
+	switch operator {
+	case "<":
+		return ">"
+	case "<=":
+		return ">="
+	case ">":
+		return "<"
+	case ">=":
+		return "<="
+	default:
+		return operator
 	}
-	feature.Value = strings.TrimSpace(parser.SerializeValues(rest))
-	return feature, nil
+}
+
+func skipWhitespaceFrom(values []parser.ComponentValue, index int) int {
+	for index < len(values) && parser.IsWhitespace(values[index]) {
+		index++
+	}
+	return index
 }
 
 func trimWhitespace(values []parser.ComponentValue) []parser.ComponentValue {
@@ -230,60 +373,212 @@ func (query Query) matchesFeatures(environment Environment) bool {
 
 func (feature Feature) matches(environment Environment) bool {
 	name := feature.Name
+	operator := feature.Operator
+	if strings.HasPrefix(name, "min-") {
+		operator = ">="
+		name = strings.TrimPrefix(name, "min-")
+	} else if strings.HasPrefix(name, "max-") {
+		operator = "<="
+		name = strings.TrimPrefix(name, "max-")
+	}
 	switch name {
-	case "width", "height":
-		dimension := environment.Width
-		if name == "height" {
-			dimension = environment.Height
-		}
-		value, ok := parseLength(feature.Value)
-		if !ok {
-			return false
-		}
-		return compare(dimension, value, feature.Operator)
-	case "min-width":
-		value, ok := parseLength(feature.Value)
-		return ok && environment.Width >= value
-	case "max-width":
-		value, ok := parseLength(feature.Value)
-		return ok && environment.Width <= value
-	case "min-height":
-		value, ok := parseLength(feature.Value)
-		return ok && environment.Height >= value
-	case "max-height":
-		value, ok := parseLength(feature.Value)
-		return ok && environment.Height <= value
+	case "width":
+		return matchLengthValue(environment.Width, feature.Value, operator)
+	case "height":
+		return matchLengthValue(environment.Height, feature.Value, operator)
+	case "device-width":
+		return matchLengthValue(environment.Width, feature.Value, operator)
+	case "device-height":
+		return matchLengthValue(environment.Height, feature.Value, operator)
+	case "resolution":
+		return matchResolution(environment.Resolution, feature.Value, operator)
+	case "color":
+		return matchRange(float64(environment.Color), feature.Value, operator)
+	case "color-index":
+		return matchRange(float64(environment.ColorIndex), feature.Value, operator)
+	case "monochrome":
+		return matchRange(float64(environment.Monochrome), feature.Value, operator)
+	case "grid":
+		return matchRange(boolNumber(environment.Grid), feature.Value, operator)
+	case "aspect-ratio":
+		return matchRatio(environment.Width, environment.Height, feature.Value, operator)
+	case "device-aspect-ratio":
+		return matchRatio(environment.Width, environment.Height, feature.Value, operator)
 	case "orientation":
+		if feature.Value == "" {
+			return true
+		}
 		orientation := "landscape"
 		if environment.Height > environment.Width {
 			orientation = "portrait"
 		}
-		return strings.EqualFold(feature.Value, orientation)
-	case "resolution", "min-resolution", "max-resolution":
-		value, ok := parseResolution(feature.Value)
-		if !ok {
-			return false
-		}
-		switch name {
-		case "min-resolution":
-			return environment.Resolution >= value
-		case "max-resolution":
-			return environment.Resolution <= value
-		default:
-			return compare(environment.Resolution, value, feature.Operator)
-		}
+		return matchKeyword(orientation, feature.Value)
+	case "scan":
+		return matchKeyword(environment.Scan, feature.Value)
+	case "update":
+		return matchKeyword(environment.Update, feature.Value)
+	case "overflow-block":
+		return matchKeyword(environment.OverflowBlock, feature.Value)
+	case "overflow-inline":
+		return matchKeyword(environment.OverflowInline, feature.Value)
+	case "pointer":
+		return matchKeyword(environment.Pointer, feature.Value)
+	case "any-pointer":
+		return matchKeyword(environment.AnyPointer, feature.Value)
+	case "hover":
+		return matchKeyword(environment.Hover, feature.Value)
+	case "any-hover":
+		return matchKeyword(environment.AnyHover, feature.Value)
 	case "prefers-color-scheme":
-		return strings.EqualFold(feature.Value, environment.PrefersColorScheme)
+		return matchKeyword(environment.PrefersColorScheme, feature.Value)
 	case "prefers-reduced-motion":
-		return strings.EqualFold(feature.Value, environment.PrefersReducedMotion)
+		return matchKeyword(environment.PrefersReducedMotion, feature.Value)
+	case "prefers-contrast":
+		return matchKeyword(environment.PrefersContrast, feature.Value)
+	case "prefers-reduced-data":
+		return matchKeyword(environment.PrefersReducedData, feature.Value)
+	case "prefers-reduced-transparency":
+		return matchKeyword(environment.PrefersReducedTransparency, feature.Value)
 	case "forced-colors":
-		if strings.EqualFold(feature.Value, "active") {
+		if feature.Value == "" {
 			return environment.ForcedColors
 		}
-		return !environment.ForcedColors
+		return matchKeyword(boolKeyword(environment.ForcedColors), feature.Value)
+	case "inverted-colors":
+		if feature.Value == "" {
+			return environment.InvertedColors
+		}
+		return matchKeyword(invertedKeyword(environment.InvertedColors), feature.Value)
+	case "display-mode":
+		return matchKeyword(environment.DisplayMode, feature.Value)
+	case "dynamic-range":
+		return matchKeyword(environment.DynamicRange, feature.Value)
+	case "video-dynamic-range":
+		return matchKeyword(environment.VideoDynamicRange, feature.Value)
+	case "scripting":
+		return matchKeyword(environment.Scripting, feature.Value)
+	case "color-gamut":
+		return matchKeyword(environment.ColorGamut, feature.Value)
+	case "video-color-gamut":
+		return matchKeyword(environment.VideoColorGamut, feature.Value)
+	case "environment-blending":
+		return matchKeyword(environment.EnvironmentBlending, feature.Value)
+	case "device-posture":
+		return matchKeyword(environment.DevicePosture, feature.Value)
+	case "nav-controls":
+		return matchKeyword(environment.NavControls, feature.Value)
+	case "horizontal-viewport-segments":
+		return matchRange(float64(environment.HorizontalViewportSegments), feature.Value, operator)
+	case "vertical-viewport-segments":
+		return matchRange(float64(environment.VerticalViewportSegments), feature.Value, operator)
 	default:
 		return false
 	}
+}
+
+func matchLengthValue(value float64, text, operator string) bool {
+	if text == "" {
+		return value != 0
+	}
+	target, ok := parseLength(text)
+	if !ok {
+		return false
+	}
+	return compare(value, target, operator)
+}
+
+func matchRange(value float64, text, operator string) bool {
+	if text == "" {
+		return value != 0
+	}
+	target, ok := parseNumber(text)
+	if !ok {
+		return false
+	}
+	return compare(value, target, operator)
+}
+
+func matchResolution(value float64, text, operator string) bool {
+	if text == "" {
+		return value != 0
+	}
+	target, ok := parseResolution(text)
+	if !ok {
+		return false
+	}
+	return compare(value, target, operator)
+}
+
+func matchRatio(width, height float64, text, operator string) bool {
+	if text == "" {
+		return width != 0 && height != 0
+	}
+	target, ok := parseRatio(text)
+	if !ok || height == 0 {
+		return false
+	}
+	return compare(width/height, target, operator)
+}
+
+func matchKeyword(environment, text string) bool {
+	if text == "" {
+		lower := strings.ToLower(environment)
+		return lower != "" && lower != "none" && lower != "no-preference"
+	}
+	return strings.EqualFold(environment, text)
+}
+
+func parseNumber(text string) (float64, bool) {
+	componentValues := parser.ParseComponentValueList(text)
+	trimmed := trimWhitespace(componentValues)
+	if len(trimmed) != 1 {
+		return 0, false
+	}
+	token, ok := parser.AsToken(trimmed[0])
+	if !ok || token.Type != tokenizer.TokenNumber {
+		return 0, false
+	}
+	return token.Number, true
+}
+
+func parseRatio(text string) (float64, bool) {
+	parts := strings.Split(text, "/")
+	if len(parts) == 1 {
+		return parseNumber(strings.TrimSpace(parts[0]))
+	}
+	if len(parts) != 2 {
+		return 0, false
+	}
+	numerator, ok := parseNumber(strings.TrimSpace(parts[0]))
+	if !ok {
+		return 0, false
+	}
+	denominator, ok := parseNumber(strings.TrimSpace(parts[1]))
+	if !ok || denominator == 0 {
+		return 0, false
+	}
+	return numerator / denominator, true
+}
+
+func boolNumber(value bool) float64 {
+	if value {
+		return 1
+	}
+	return 0
+}
+
+func boolKeyword(value bool) string {
+	if value {
+		return "active"
+	}
+	return "none"
+}
+
+func invertedKeyword(value bool) string {
+	if value {
+		return "inverted"
+	}
+	return "none"
 }
 
 func compare(left, right float64, operator string) bool {

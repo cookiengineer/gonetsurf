@@ -1,0 +1,14 @@
+[
+ {"input": "a { color: red; }", "selectors": ["a"]},
+ {"input": "a { & .b { color: blue } }", "selectors": ["a", "a .b"]},
+ {"input": "a { > .b { color: blue } }", "selectors": ["a", "a > .b"]},
+ {"input": "a { &:hover { color: blue } }", "selectors": ["a", "a:hover"]},
+ {"input": "a { & + & { color: blue } }", "selectors": ["a", "a + a"]},
+ {"input": "a, b { & .c { color: blue } }", "selectors": ["a, b", "a .c, b .c"]},
+ {"input": "a { .b & { color: blue } }", "selectors": ["a", ".b a"]},
+ {"input": ".a { &.b { color: blue } }", "selectors": [".a", ".a.b"]},
+ {"input": "a { &:is(.x, .y) { color: blue } }", "selectors": ["a", "a:is(.x, .y)"]},
+ {"input": "a { & .b, & .c { color: blue } }", "selectors": ["a", "a .b, a .c"]},
+ {"input": "a { .b { .c { color: blue } } }", "selectors": ["a", "a .b", "a .b .c"]},
+ {"input": "a { color: red; & .b { color: blue } .c { color: green } }", "selectors": ["a", "a .b", "a .c"]}
+]

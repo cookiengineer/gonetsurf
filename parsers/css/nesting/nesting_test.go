@@ -1,6 +1,10 @@
 package nesting
 
-import "testing"
+import (
+	"encoding/json"
+	"os"
+	"testing"
+)
 
 func TestParseNestedRules(t *testing.T) {
 	rules := Parse("a { color: red; & .b { color: blue } }")
@@ -54,5 +58,33 @@ func TestFlatten(t *testing.T) {
 	}
 	if rules[1].Selector != "a .b" {
 		t.Errorf("rule 1 selector = %q, want a .b", rules[1].Selector)
+	}
+}
+
+type nestingCase struct {
+	Input     string   `json:"input"`
+	Selectors []string `json:"selectors"`
+}
+
+func TestNestingConformance(t *testing.T) {
+	encoded, err := os.ReadFile("testdata/nesting.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []nestingCase
+	if err := json.Unmarshal(encoded, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, testCase := range cases {
+		rules := Flatten(Parse(testCase.Input))
+		if len(rules) != len(testCase.Selectors) {
+			t.Errorf("Flatten(%q) returned %d rules, want %d", testCase.Input, len(rules), len(testCase.Selectors))
+			continue
+		}
+		for index, want := range testCase.Selectors {
+			if rules[index].Selector != want {
+				t.Errorf("Flatten(%q)[%d].Selector = %q, want %q", testCase.Input, index, rules[index].Selector, want)
+			}
+		}
 	}
 }

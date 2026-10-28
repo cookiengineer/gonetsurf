@@ -129,7 +129,14 @@ func parseInParens(values []parser.ComponentValue) (Condition, error) {
 		}
 		if function, ok := trimmed[0].(*parser.Function); ok {
 			if strings.EqualFold(function.Name, "selector") {
-				return SelectorCondition{Selector: strings.TrimSpace(parser.SerializeValues(function.Value))}, nil
+				selector := strings.TrimSpace(parser.SerializeValues(function.Value))
+				if selector == "" {
+					return nil, fmt.Errorf("css conditions: selector() requires an argument")
+				}
+				if _, err := selectors.Parse(selector); err != nil {
+					return nil, fmt.Errorf("css conditions: invalid selector: %w", err)
+				}
+				return SelectorCondition{Selector: selector}, nil
 			}
 			return nil, fmt.Errorf("css conditions: unsupported function %q", function.Name)
 		}
@@ -140,6 +147,15 @@ func parseInParens(values []parser.ComponentValue) (Condition, error) {
 
 func parseInParensContent(values []parser.ComponentValue) (Condition, error) {
 	trimmed := trimWhitespace(values)
+	if len(trimmed) > 0 {
+		if token, ok := parser.AsToken(trimmed[0]); ok && token.Type == tokenizer.TokenIdent && strings.EqualFold(token.Value, "not") {
+			inner, err := parseInParens(trimmed[1:])
+			if err != nil {
+				return nil, err
+			}
+			return NotCondition{Condition: inner}, nil
+		}
+	}
 	colon := findTopLevelColon(trimmed)
 	if colon >= 0 {
 		nameToken, ok := parser.AsToken(trimmed[0])
@@ -150,9 +166,6 @@ func parseInParensContent(values []parser.ComponentValue) (Condition, error) {
 			Property: strings.ToLower(nameToken.Value),
 			Value:    strings.TrimSpace(parser.SerializeValues(trimmed[colon+1:])),
 		}, nil
-	}
-	if list, err := selectors.ParseValues(trimmed); err == nil && list != nil {
-		return SelectorCondition{Selector: strings.TrimSpace(parser.SerializeValues(trimmed))}, nil
 	}
 	return nil, fmt.Errorf("css conditions: invalid condition")
 }

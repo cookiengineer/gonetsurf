@@ -151,11 +151,35 @@ type Animation struct {
 	PlayState      string
 }
 
-// ParseAnimation parses the animation shorthand.
+// ParseAnimation parses a single animation shorthand.
 func ParseAnimation(input string) (*Animation, error) {
+	return parseAnimationValues(parser.ParseComponentValueList(input))
+}
+
+// ParseAnimationList parses a comma-separated animation shorthand list.
+func ParseAnimationList(input string) ([]*Animation, error) {
+	groups := splitCommas(parser.ParseComponentValueList(input))
+	animations := make([]*Animation, 0, len(groups))
+	for _, group := range groups {
+		animation, err := parseAnimationValues(group)
+		if err != nil {
+			return nil, err
+		}
+		animations = append(animations, animation)
+	}
+	return animations, nil
+}
+
+func parseAnimationValues(values []parser.ComponentValue) (*Animation, error) {
 	result := &Animation{TimingFunction: "ease", IterationCount: 1, Direction: "normal", FillMode: "none", PlayState: "running"}
-	values := parser.ParseComponentValueList(input)
-	timeCount := 0
+	durationSet := false
+	delaySet := false
+	iterationSet := false
+	timingSet := false
+	nameSet := false
+	directionSet := false
+	fillSet := false
+	playSet := false
 	for _, value := range values {
 		if parser.IsWhitespace(value) {
 			continue
@@ -163,10 +187,14 @@ func ParseAnimation(input string) (*Animation, error) {
 		token, ok := parser.AsToken(value)
 		if !ok {
 			if function, isFunction := value.(*parser.Function); isFunction {
+				if timingSet {
+					return nil, fmt.Errorf("css animations: duplicate timing function")
+				}
 				result.TimingFunction = strings.ToLower(function.Name)
+				timingSet = true
 				continue
 			}
-			continue
+			return nil, fmt.Errorf("css animations: unexpected component value")
 		}
 		switch token.Type {
 		case tokenizer.TokenDimension:
@@ -174,30 +202,78 @@ func ParseAnimation(input string) (*Animation, error) {
 			if !ok {
 				return nil, fmt.Errorf("css animations: invalid time %q", token.Representation)
 			}
-			if timeCount == 0 {
+			if !durationSet {
+				if duration < 0 {
+					return nil, fmt.Errorf("css animations: negative duration")
+				}
 				result.Duration = duration
-			} else {
-				result.Delay = duration
+				durationSet = true
+				continue
 			}
-			timeCount++
+			if delaySet {
+				return nil, fmt.Errorf("css animations: too many time values")
+			}
+			result.Delay = duration
+			delaySet = true
 		case tokenizer.TokenNumber:
+			if iterationSet {
+				return nil, fmt.Errorf("css animations: duplicate iteration count")
+			}
 			result.IterationCount = token.Number
+			iterationSet = true
 		case tokenizer.TokenIdent:
 			name := strings.ToLower(token.Value)
 			switch name {
 			case "infinite":
+				if iterationSet {
+					return nil, fmt.Errorf("css animations: duplicate iteration count")
+				}
 				result.IterationCount = -1
+				iterationSet = true
 			case "normal", "reverse", "alternate", "alternate-reverse":
+				if directionSet {
+					return nil, fmt.Errorf("css animations: duplicate direction")
+				}
 				result.Direction = name
-			case "none", "forwards", "backwards", "both":
-				result.FillMode = name
-			case "running", "paused":
-				result.PlayState = name
-			case "ease", "ease-in", "ease-out", "ease-in-out", "linear", "step-start", "step-end":
-				result.TimingFunction = name
-			default:
+				directionSet = true
+			case "none":
+				if !fillSet {
+					result.FillMode = name
+					fillSet = true
+					continue
+				}
+				if nameSet {
+					return nil, fmt.Errorf("css animations: duplicate animation name")
+				}
 				result.Name = token.Value
+				nameSet = true
+			case "forwards", "backwards", "both":
+				if fillSet {
+					return nil, fmt.Errorf("css animations: duplicate fill mode")
+				}
+				result.FillMode = name
+				fillSet = true
+			case "running", "paused":
+				if playSet {
+					return nil, fmt.Errorf("css animations: duplicate play state")
+				}
+				result.PlayState = name
+				playSet = true
+			case "ease", "ease-in", "ease-out", "ease-in-out", "linear", "step-start", "step-end":
+				if timingSet {
+					return nil, fmt.Errorf("css animations: duplicate timing function")
+				}
+				result.TimingFunction = name
+				timingSet = true
+			default:
+				if nameSet {
+					return nil, fmt.Errorf("css animations: duplicate animation name")
+				}
+				result.Name = token.Value
+				nameSet = true
 			}
+		case tokenizer.TokenComma:
+			return nil, fmt.Errorf("css animations: comma in single animation")
 		}
 	}
 	return result, nil

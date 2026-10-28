@@ -1,6 +1,8 @@
 package animations
 
 import (
+	"encoding/json"
+	"os"
 	"testing"
 	"time"
 )
@@ -59,5 +61,40 @@ func TestParseAnimation(t *testing.T) {
 	}
 	if animation.Direction != "alternate" {
 		t.Errorf("direction = %q", animation.Direction)
+	}
+}
+
+type animationCase struct {
+	Input string `json:"input"`
+	Valid bool   `json:"valid"`
+}
+
+func TestAnimationConformance(t *testing.T) {
+	encoded, err := os.ReadFile("testdata/animation.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []animationCase
+	if err := json.Unmarshal(encoded, &cases); err != nil {
+		t.Fatal(err)
+	}
+	for _, testCase := range cases {
+		_, err := ParseAnimation(testCase.Input)
+		if (err == nil) != testCase.Valid {
+			t.Errorf("ParseAnimation(%q) valid = %v, want %v (err: %v)", testCase.Input, err == nil, testCase.Valid, err)
+		}
+	}
+}
+
+func TestAnimationList(t *testing.T) {
+	animations, err := ParseAnimationList("anim paused both reverse, 4 1s -3s cubic-bezier(0, -2, 1, 3)")
+	if err != nil {
+		t.Fatalf("ParseAnimationList: %v", err)
+	}
+	if len(animations) != 2 {
+		t.Fatalf("got %d animations, want 2", len(animations))
+	}
+	if animations[0].Name != "anim" || animations[1].IterationCount != 4 {
+		t.Errorf("animations = %#v", animations)
 	}
 }

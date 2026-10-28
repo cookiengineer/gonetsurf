@@ -1,0 +1,22 @@
+[
+ {"input": "(display: grid)", "parse": true, "match": true},
+ {"input": "(display: inline-grid)", "parse": true, "match": false},
+ {"input": "(color: red)", "parse": true, "match": true},
+ {"input": "(margin: 0)", "parse": true, "match": true},
+ {"input": "(--custom: value)", "parse": true, "match": true},
+ {"input": "not (display: grid)", "parse": true, "match": false},
+ {"input": "not (display: inline-grid)", "parse": true, "match": true},
+ {"input": "(display: grid) and (color: red)", "parse": true, "match": true},
+ {"input": "(display: grid) and (color: blue)", "parse": true, "match": false},
+ {"input": "(display: grid) or (color: blue)", "parse": true, "match": true},
+ {"input": "(display: inline-grid) or (color: blue)", "parse": true, "match": false},
+ {"input": "(display: grid) and (not (color: blue))", "parse": true, "match": true},
+ {"input": "selector(a:link.class#ident)", "parse": true, "match": true},
+ {"input": "selector(:has(a))", "parse": true, "match": true},
+ {"input": "selector(:nth-child(2n))", "parse": true, "match": false},
+ {"input": "(display grid)", "parse": false},
+ {"input": "not", "parse": false},
+ {"input": "(display: grid) and", "parse": false},
+ {"input": "selector()", "parse": false},
+ {"input": "()", "parse": false}
+]

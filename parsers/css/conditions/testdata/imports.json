@@ -1,0 +1,8 @@
+[
+ {"input": "url('theme.css')", "url": "theme.css", "layer": "", "media": ""},
+ {"input": "\"theme.css\" screen", "url": "theme.css", "layer": "", "media": "screen"},
+ {"input": "url(theme.css) layer(base)", "url": "theme.css", "layer": "base", "media": ""},
+ {"input": "url(theme.css) supports(display: grid)", "url": "theme.css", "layer": "", "media": ""},
+ {"input": "url(theme.css) layer(base) supports(display: grid) screen and (min-width: 600px)", "url": "theme.css", "layer": "base", "media": "screen and (min-width: 600px)"},
+ {"input": "url(theme.css) layer", "url": "theme.css", "layer": "anonymous", "media": ""}
+]
