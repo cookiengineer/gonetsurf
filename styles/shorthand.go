@@ -44,6 +44,12 @@ func expandDeclaration(declaration *cssom.Declaration) []*cssom.Declaration {
 		return expandBorder(declaration, "left")
 	case "overflow":
 		return expandOverflow(declaration)
+	case "flex":
+		return expandFlex(declaration)
+	case "flex-flow":
+		return expandFlexFlow(declaration)
+	case "gap":
+		return expandGap(declaration)
 	default:
 		return []*cssom.Declaration{declaration}
 	}
@@ -200,4 +206,94 @@ func splitWhitespaceValues(values []parser.ComponentValue) [][]parser.ComponentV
 		groups = append(groups, current)
 	}
 	return groups
+}
+
+func expandFlex(declaration *cssom.Declaration) []*cssom.Declaration {
+	values := splitWhitespaceValues(declaration.Value)
+	if len(values) == 0 {
+		return []*cssom.Declaration{declaration}
+	}
+	grow := parser.ParseComponentValueList("0")
+	shrink := parser.ParseComponentValueList("1")
+	basis := parser.ParseComponentValueList("auto")
+	if len(values) == 1 {
+		if token, ok := parser.AsToken(values[0][0]); ok && token.Type == tokenizer.TokenIdent {
+			switch strings.ToLower(token.Value) {
+			case "none", "initial":
+				shrink = parser.ParseComponentValueList("0")
+			case "auto":
+				grow = parser.ParseComponentValueList("1")
+			}
+		}
+	}
+	if len(values) >= 1 {
+		if token, ok := parser.AsToken(values[0][0]); ok && token.Type == tokenizer.TokenNumber {
+			grow = values[0]
+			if len(values) == 1 {
+				basis = parser.ParseComponentValueList("0%")
+			}
+		} else {
+			grow = parser.ParseComponentValueList("1")
+			basis = values[0]
+		}
+	}
+	if len(values) >= 2 {
+		if _, ok := parser.AsToken(values[1][0]); ok {
+			if token, isNumber := parser.AsToken(values[1][0]); isNumber && token.Type == tokenizer.TokenNumber {
+				shrink = values[1]
+			} else {
+				basis = values[1]
+			}
+		}
+	}
+	if len(values) >= 3 {
+		basis = values[2]
+	}
+	return []*cssom.Declaration{
+		{Name: "flex-grow", Value: grow, Important: declaration.Important},
+		{Name: "flex-shrink", Value: shrink, Important: declaration.Important},
+		{Name: "flex-basis", Value: basis, Important: declaration.Important},
+	}
+}
+
+func expandFlexFlow(declaration *cssom.Declaration) []*cssom.Declaration {
+	direction := parser.ParseComponentValueList("row")
+	wrap := parser.ParseComponentValueList("nowrap")
+	for _, value := range splitWhitespaceValues(declaration.Value) {
+		if len(value) != 1 {
+			return []*cssom.Declaration{declaration}
+		}
+		token, ok := parser.AsToken(value[0])
+		if !ok || token.Type != tokenizer.TokenIdent {
+			return []*cssom.Declaration{declaration}
+		}
+		switch strings.ToLower(token.Value) {
+		case "row", "row-reverse", "column", "column-reverse":
+			direction = value
+		case "nowrap", "wrap", "wrap-reverse":
+			wrap = value
+		default:
+			return []*cssom.Declaration{declaration}
+		}
+	}
+	return []*cssom.Declaration{
+		{Name: "flex-direction", Value: direction, Important: declaration.Important},
+		{Name: "flex-wrap", Value: wrap, Important: declaration.Important},
+	}
+}
+
+func expandGap(declaration *cssom.Declaration) []*cssom.Declaration {
+	values := splitWhitespaceValues(declaration.Value)
+	if len(values) == 0 || len(values) > 2 {
+		return []*cssom.Declaration{declaration}
+	}
+	row := values[0]
+	column := values[0]
+	if len(values) == 2 {
+		column = values[1]
+	}
+	return []*cssom.Declaration{
+		{Name: "row-gap", Value: row, Important: declaration.Important},
+		{Name: "column-gap", Value: column, Important: declaration.Important},
+	}
 }
