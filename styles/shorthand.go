@@ -50,6 +50,11 @@ func expandDeclaration(declaration *cssom.Declaration) []*cssom.Declaration {
 		return expandFlexFlow(declaration)
 	case "gap":
 		return expandGap(declaration)
+	case "margin-inline", "margin-block", "padding-inline", "padding-block",
+		"inset-inline", "inset-block":
+		return expandLogicalEdges(declaration)
+	case "inset":
+		return expandPhysicalEdges("inset", declaration, []string{"top", "right", "bottom", "left"})
 	default:
 		return []*cssom.Declaration{declaration}
 	}
@@ -296,4 +301,56 @@ func expandGap(declaration *cssom.Declaration) []*cssom.Declaration {
 		{Name: "row-gap", Value: row, Important: declaration.Important},
 		{Name: "column-gap", Value: column, Important: declaration.Important},
 	}
+}
+
+func expandLogicalEdges(declaration *cssom.Declaration) []*cssom.Declaration {
+	name := strings.ToLower(declaration.Name)
+	parts := strings.SplitN(name, "-", 2)
+	prefix := parts[0]
+	axis := parts[1]
+	values := splitWhitespaceValues(declaration.Value)
+	if len(values) == 0 || len(values) > 2 {
+		return []*cssom.Declaration{declaration}
+	}
+	start := values[0]
+	end := values[0]
+	if len(values) == 2 {
+		end = values[1]
+	}
+	return []*cssom.Declaration{
+		{Name: prefix + "-" + axis + "-start", Value: start, Important: declaration.Important},
+		{Name: prefix + "-" + axis + "-end", Value: end, Important: declaration.Important},
+	}
+}
+
+func expandPhysicalEdges(prefix string, declaration *cssom.Declaration, sides []string) []*cssom.Declaration {
+	values := splitWhitespaceValues(declaration.Value)
+	if len(values) == 0 || len(values) > 4 {
+		return []*cssom.Declaration{declaration}
+	}
+	selected := make([][]parser.ComponentValue, 4)
+	switch len(values) {
+	case 1:
+		for index := range selected {
+			selected[index] = values[0]
+		}
+	case 2:
+		selected[0], selected[2] = values[0], values[0]
+		selected[1], selected[3] = values[1], values[1]
+	case 3:
+		selected[0] = values[0]
+		selected[1], selected[3] = values[1], values[1]
+		selected[2] = values[2]
+	case 4:
+		copy(selected, values)
+	}
+	declarations := make([]*cssom.Declaration, 0, 4)
+	for index, side := range sides {
+		declarations = append(declarations, &cssom.Declaration{
+			Name:      prefix + "-" + side,
+			Value:     selected[index],
+			Important: declaration.Important,
+		})
+	}
+	return declarations
 }

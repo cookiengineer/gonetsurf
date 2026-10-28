@@ -146,9 +146,23 @@ func (engine *Engine) Compute(element *dom.Node, parent *Style) *Style {
 			}
 		}
 	}
+	var parentValues cascade.InheritedValues
+	if parent != nil {
+		parentValues = cascade.InheritedValues(parent.values)
+	}
+	preliminary := cascade.Cascade(declarations)
+	writingMode := strings.TrimSpace(parser.SerializeValues(preliminary.ResolveWithCustom("writing-mode", parentValues, initialValue("writing-mode"))))
+	if writingMode == "" {
+		writingMode = "horizontal-tb"
+	}
+	direction := strings.TrimSpace(parser.SerializeValues(preliminary.ResolveWithCustom("direction", parentValues, initialValue("direction"))))
+	if direction == "" {
+		direction = "ltr"
+	}
+	declarations = expandLogicalDeclarations(declarations, writingMode, direction)
 	result := cascade.Cascade(declarations)
 	propertyNames := map[string]bool{}
-	for _, name := range []string{"font-family", "font-size", "font-style", "font-weight", "line-height", "color"} {
+	for _, name := range []string{"font-family", "font-size", "font-style", "font-weight", "line-height", "color", "writing-mode", "direction"} {
 		propertyNames[name] = true
 	}
 	if _, hasAll := result.Get("all"); hasAll {
@@ -161,9 +175,7 @@ func (engine *Engine) Compute(element *dom.Node, parent *Style) *Style {
 			propertyNames[declaration.Property] = true
 		}
 	}
-	var parentValues cascade.InheritedValues
 	if parent != nil {
-		parentValues = cascade.InheritedValues(parent.values)
 		for name := range parent.values {
 			propertyNames[name] = true
 		}

@@ -339,3 +339,73 @@ func TestIncrementalRestyleNoMutation(t *testing.T) {
 		t.Errorf("cache size changed without mutation: %d -> %d", len(first), len(second))
 	}
 }
+
+func TestLogicalProperties(t *testing.T) {
+	document, _, _, paragraph, engine := engineFixture(`
+		p {
+			direction: rtl;
+			margin-inline-start: 10px;
+			margin-inline-end: 20px;
+			padding-inline: 3px 4px;
+			inset-inline-start: 5px;
+			inline-size: 100px;
+			block-size: 50px;
+		}
+	`)
+	styles := engine.ComputeDocumentTree(document)
+	style := styles[paragraph]
+	if got := style.GetString("margin-right"); got != "10px" {
+		t.Errorf("rtl margin-right = %q, want 10px", got)
+	}
+	if got := style.GetString("margin-left"); got != "20px" {
+		t.Errorf("rtl margin-left = %q, want 20px", got)
+	}
+	if got := style.GetString("padding-right"); got != "3px" {
+		t.Errorf("rtl padding-right = %q, want 3px", got)
+	}
+	if got := style.GetString("padding-left"); got != "4px" {
+		t.Errorf("rtl padding-left = %q, want 4px", got)
+	}
+	if got := style.GetString("right"); got != "5px" {
+		t.Errorf("rtl inset-inline-start = %q, want 5px", got)
+	}
+	if got := style.GetString("width"); got != "100px" || style.GetString("height") != "50px" {
+		t.Errorf("horizontal size = %q x %q", style.GetString("width"), style.GetString("height"))
+	}
+
+	document, _, _, paragraph, engine = engineFixture(`
+		p {
+			writing-mode: vertical-rl;
+			inline-size: 100px;
+			block-size: 50px;
+			margin-inline-start: 10px;
+			margin-block-start: 20px;
+		}
+	`)
+	styles = engine.ComputeDocumentTree(document)
+	style = styles[paragraph]
+	if got := style.GetString("width"); got != "50px" {
+		t.Errorf("vertical width = %q, want 50px", got)
+	}
+	if got := style.GetString("height"); got != "100px" {
+		t.Errorf("vertical height = %q, want 100px", got)
+	}
+	if got := style.GetString("margin-top"); got != "10px" {
+		t.Errorf("vertical margin-top = %q, want 10px", got)
+	}
+	if got := style.GetString("margin-right"); got != "20px" {
+		t.Errorf("vertical margin-right = %q, want 20px", got)
+	}
+
+	document, _, _, paragraph, engine = engineFixture(`
+		p { margin-inline: 5px 10px; padding-block: 1px 2px }
+	`)
+	styles = engine.ComputeDocumentTree(document)
+	style = styles[paragraph]
+	if style.GetString("margin-left") != "5px" || style.GetString("margin-right") != "10px" {
+		t.Errorf("ltr inline margins = %q/%q", style.GetString("margin-left"), style.GetString("margin-right"))
+	}
+	if style.GetString("padding-top") != "1px" || style.GetString("padding-bottom") != "2px" {
+		t.Errorf("ltr block padding = %q/%q", style.GetString("padding-top"), style.GetString("padding-bottom"))
+	}
+}
