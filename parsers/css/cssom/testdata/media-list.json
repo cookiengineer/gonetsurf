@@ -1,0 +1,9 @@
+[
+ {"input": "screen", "mediaText": "screen", "items": ["screen"]},
+ {"input": "SCREEN", "mediaText": "screen", "items": ["screen"]},
+ {"input": "  screen  ,  print  ", "mediaText": "screen, print", "items": ["screen", "print"]},
+ {"input": "NOT  PRINT", "mediaText": "not print", "items": ["not print"]},
+ {"input": "", "mediaText": "", "items": []},
+ {"input": "screen, bad$, print", "mediaText": "screen, not all, print", "items": ["screen", "not all", "print"]},
+ {"input": "bad$", "mediaText": "not all", "items": ["not all"]}
+]
