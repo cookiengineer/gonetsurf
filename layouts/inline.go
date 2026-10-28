@@ -201,7 +201,7 @@ func appendTextRuns(layout *Layout, box *Box, style *styles.Style, result *[]inl
 		words := strings.Fields(text)
 		for index, word := range words {
 			width, _ := layout.measureText(word, style)
-			metrics := MetricsForStyle(style)
+			metrics := layout.metricsForStyle(style)
 			lineHeight := box.LineHeight
 			if lineHeight <= 0 {
 				_, lineHeight = fontMetrics(style)
@@ -230,7 +230,7 @@ func appendTextRuns(layout *Layout, box *Box, style *styles.Style, result *[]inl
 		}
 		if whiteSpace == "pre" {
 			width, _ := layout.measureText(line, style)
-			metrics := MetricsForStyle(style)
+			metrics := layout.metricsForStyle(style)
 			lineHeight := box.LineHeight
 			if lineHeight <= 0 {
 				_, lineHeight = fontMetrics(style)
@@ -253,7 +253,7 @@ func appendTextRuns(layout *Layout, box *Box, style *styles.Style, result *[]inl
 		}
 		for index, word := range words {
 			width, _ := layout.measureText(word, style)
-			metrics := MetricsForStyle(style)
+			metrics := layout.metricsForStyle(style)
 			lineHeight := box.LineHeight
 			if lineHeight <= 0 {
 				_, lineHeight = fontMetrics(style)
@@ -464,7 +464,7 @@ func inlineSpaceWidth(style *styles.Style) float64 {
 
 func (layout *Layout) inlineLineMetrics(style *styles.Style, runs []inlineRun) (float64, float64) {
 	_, strutHeight := fontMetrics(style)
-	strutAscent := MetricsForStyle(style).Ascent
+	strutAscent := layout.metricsForStyle(style).Ascent
 	lineHeight := strutHeight
 	ascent := strutAscent
 	for _, run := range runs {

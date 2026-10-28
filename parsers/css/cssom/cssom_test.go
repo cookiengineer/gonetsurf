@@ -256,8 +256,8 @@ func TestDeclarationBlockAndAtRuleStyle(t *testing.T) {
 		t.Errorf("declarations = %q", style.CSSText())
 	}
 	sheet := Parse("@font-face { font-family: X }")
-	atRule := sheet.CSSRules()[0].(*AtRule)
-	if got := atRule.Style().GetPropertyValue("font-family"); got != "X" {
+	fontRule := sheet.CSSRules()[0].(*FontFaceRule)
+	if got := fontRule.Style().GetPropertyValue("font-family"); got != "X" {
 		t.Errorf("font-family = %q, want X", got)
 	}
 }

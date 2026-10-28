@@ -412,3 +412,31 @@ func initialValue(property string) []parser.ComponentValue {
 	}
 	return parser.ParseComponentValueList(registered.Initial)
 }
+
+// FontFaces returns the @font-face rules from applicable author stylesheets in
+// document order.
+func (engine *Engine) FontFaces() []*cssom.FontFaceRule {
+	if engine == nil {
+		return nil
+	}
+	var faces []*cssom.FontFaceRule
+	var collect func(rules []cssom.Rule)
+	collect = func(rules []cssom.Rule) {
+		for _, rule := range rules {
+			switch typed := rule.(type) {
+			case *cssom.FontFaceRule:
+				faces = append(faces, typed)
+			case *cssom.StyleRule:
+				collect(typed.Nested)
+			case *cssom.AtRule:
+				if engine.atRuleApplies(typed) {
+					collect(typed.Rules)
+				}
+			}
+		}
+	}
+	for _, stylesheet := range engine.stylesheets {
+		collect(stylesheet.CSSRules())
+	}
+	return faces
+}

@@ -32,6 +32,10 @@ func expandDeclaration(declaration *cssom.Declaration) []*cssom.Declaration {
 		return expandBorderComponent("style", declaration)
 	case "border-color":
 		return expandBorderComponent("color", declaration)
+	case "background":
+		return expandBackground(declaration)
+	case "border-radius":
+		return expandBorderRadius(declaration)
 	case "border":
 		return expandBorder(declaration, "")
 	case "border-top":
@@ -175,6 +179,282 @@ func expandBorder(declaration *cssom.Declaration, side string) []*cssom.Declarat
 		)
 	}
 	return declarations
+}
+
+func expandBorderRadius(declaration *cssom.Declaration) []*cssom.Declaration {
+	horizontal, vertical, ok := splitBorderRadiusValues(declaration.Value)
+	if !ok {
+		return []*cssom.Declaration{declaration}
+	}
+	horizontalCorners := cornerValues(horizontal)
+	if horizontalCorners == nil {
+		return []*cssom.Declaration{declaration}
+	}
+	verticalCorners := horizontalCorners
+	hasVertical := len(vertical) > 0
+	if hasVertical {
+		verticalCorners = cornerValues(vertical)
+		if verticalCorners == nil {
+			return []*cssom.Declaration{declaration}
+		}
+	}
+	corners := []string{"top-left", "top-right", "bottom-right", "bottom-left"}
+	declarations := make([]*cssom.Declaration, 0, 4)
+	for index, corner := range corners {
+		value := parser.SerializeValues(horizontalCorners[index])
+		if hasVertical {
+			value = value + " " + parser.SerializeValues(verticalCorners[index])
+		}
+		declarations = append(declarations, &cssom.Declaration{
+			Name:      "border-" + corner + "-radius",
+			Value:     parser.ParseComponentValueList(value),
+			Important: declaration.Important,
+		})
+	}
+	return declarations
+}
+
+func splitBorderRadiusValues(values []parser.ComponentValue) (horizontal, vertical [][]parser.ComponentValue, ok bool) {
+	horizontal = make([][]parser.ComponentValue, 0, 4)
+	vertical = make([][]parser.ComponentValue, 0, 4)
+	target := &horizontal
+	for _, value := range values {
+		if parser.IsWhitespace(value) {
+			continue
+		}
+		if token, isToken := parser.AsToken(value); isToken {
+			if token.Type == tokenizer.TokenComma {
+				return nil, nil, false
+			}
+			if token.Type == tokenizer.TokenDelim && token.Value == "/" {
+				if target == &vertical || len(horizontal) == 0 {
+					return nil, nil, false
+				}
+				target = &vertical
+				continue
+			}
+		}
+		if len(*target) == 4 {
+			return nil, nil, false
+		}
+		*target = append(*target, []parser.ComponentValue{value})
+	}
+	if len(horizontal) < 1 || len(horizontal) > 4 || len(vertical) > 4 {
+		return nil, nil, false
+	}
+	return horizontal, vertical, true
+}
+
+func cornerValues(values [][]parser.ComponentValue) [][]parser.ComponentValue {
+	if len(values) < 1 || len(values) > 4 {
+		return nil
+	}
+	corners := make([][]parser.ComponentValue, 4)
+	switch len(values) {
+	case 1:
+		for index := range corners {
+			corners[index] = values[0]
+		}
+	case 2:
+		corners[0], corners[2] = values[0], values[0]
+		corners[1], corners[3] = values[1], values[1]
+	case 3:
+		corners[0] = values[0]
+		corners[1], corners[3] = values[1], values[1]
+		corners[2] = values[2]
+	case 4:
+		copy(corners, values)
+	}
+	return corners
+}
+
+type backgroundLayer struct {
+	image      string
+	repeat     string
+	position   string
+	size       string
+	attachment string
+	origin     string
+	clip       string
+	color      string
+}
+
+func expandBackground(declaration *cssom.Declaration) []*cssom.Declaration {
+	layerTexts := splitTopLevelCommas(parser.SerializeValues(declaration.Value))
+	if len(layerTexts) == 0 {
+		return []*cssom.Declaration{declaration}
+	}
+	layers := make([]backgroundLayer, 0, len(layerTexts))
+	color := "transparent"
+	for index, text := range layerTexts {
+		layer, parsedColor, ok := parseBackgroundLayer(parser.ParseComponentValueList(text))
+		if !ok {
+			return []*cssom.Declaration{declaration}
+		}
+		if parsedColor != "" {
+			if index != len(layerTexts)-1 {
+				return []*cssom.Declaration{declaration}
+			}
+			color = parsedColor
+		}
+		layers = append(layers, layer)
+	}
+	images := make([]string, len(layers))
+	positions := make([]string, len(layers))
+	sizes := make([]string, len(layers))
+	repeats := make([]string, len(layers))
+	attachments := make([]string, len(layers))
+	origins := make([]string, len(layers))
+	clips := make([]string, len(layers))
+	for index, layer := range layers {
+		images[index] = layer.image
+		positions[index] = layer.position
+		sizes[index] = layer.size
+		repeats[index] = layer.repeat
+		attachments[index] = layer.attachment
+		origins[index] = layer.origin
+		clips[index] = layer.clip
+	}
+	return []*cssom.Declaration{
+		{Name: "background-image", Value: parser.ParseComponentValueList(strings.Join(images, ", ")), Important: declaration.Important},
+		{Name: "background-position", Value: parser.ParseComponentValueList(strings.Join(positions, ", ")), Important: declaration.Important},
+		{Name: "background-size", Value: parser.ParseComponentValueList(strings.Join(sizes, ", ")), Important: declaration.Important},
+		{Name: "background-repeat", Value: parser.ParseComponentValueList(strings.Join(repeats, ", ")), Important: declaration.Important},
+		{Name: "background-attachment", Value: parser.ParseComponentValueList(strings.Join(attachments, ", ")), Important: declaration.Important},
+		{Name: "background-origin", Value: parser.ParseComponentValueList(strings.Join(origins, ", ")), Important: declaration.Important},
+		{Name: "background-clip", Value: parser.ParseComponentValueList(strings.Join(clips, ", ")), Important: declaration.Important},
+		{Name: "background-color", Value: parser.ParseComponentValueList(color), Important: declaration.Important},
+	}
+}
+
+func splitTopLevelCommas(text string) []string {
+	values := parser.ParseComponentValueList(text)
+	var parts []string
+	var current []parser.ComponentValue
+	for _, value := range values {
+		if token, ok := parser.AsToken(value); ok && token.Type == tokenizer.TokenComma {
+			parts = append(parts, parser.SerializeValues(current))
+			current = nil
+			continue
+		}
+		current = append(current, value)
+	}
+	parts = append(parts, parser.SerializeValues(current))
+	return parts
+}
+
+func parseBackgroundLayer(values []parser.ComponentValue) (backgroundLayer, string, bool) {
+	layer := backgroundLayer{
+		image:      "none",
+		repeat:     "repeat",
+		position:   "0% 0%",
+		size:       "auto",
+		attachment: "scroll",
+		origin:     "padding-box",
+		clip:       "border-box",
+	}
+	var repeatTokens []string
+	var positionTokens []string
+	var sizeTokens []string
+	var boxTokens []string
+	afterSlash := false
+	color := ""
+
+	for _, value := range values {
+		if parser.IsWhitespace(value) {
+			continue
+		}
+		if token, ok := parser.AsToken(value); ok {
+			switch token.Type {
+			case tokenizer.TokenComma:
+				return backgroundLayer{}, "", false
+			case tokenizer.TokenDelim:
+				if token.Value == "/" {
+					afterSlash = true
+					continue
+				}
+				return backgroundLayer{}, "", false
+			case tokenizer.TokenIdent:
+				lower := strings.ToLower(token.Value)
+				switch {
+				case lower == "none":
+					if afterSlash {
+						sizeTokens = append(sizeTokens, token.Value)
+					} else {
+						layer.image = "none"
+					}
+				case lower == "repeat" || lower == "repeat-x" || lower == "repeat-y" || lower == "no-repeat" || lower == "space" || lower == "round":
+					repeatTokens = append(repeatTokens, lower)
+				case lower == "scroll" || lower == "fixed" || lower == "local":
+					layer.attachment = lower
+				case lower == "border-box" || lower == "padding-box" || lower == "content-box":
+					boxTokens = append(boxTokens, lower)
+				case lower == "left" || lower == "right" || lower == "center" || lower == "top" || lower == "bottom":
+					if afterSlash {
+						sizeTokens = append(sizeTokens, lower)
+					} else {
+						positionTokens = append(positionTokens, lower)
+					}
+				default:
+					if afterSlash {
+						sizeTokens = append(sizeTokens, token.Value)
+					} else {
+						color = token.Value
+					}
+				}
+			case tokenizer.TokenNumber, tokenizer.TokenDimension, tokenizer.TokenPercentage:
+				if afterSlash {
+					sizeTokens = append(sizeTokens, token.Representation)
+				} else {
+					positionTokens = append(positionTokens, token.Representation)
+				}
+			case tokenizer.TokenHash:
+				color = token.Representation
+			case tokenizer.TokenURL:
+				layer.image = "url(" + token.Value + ")"
+			default:
+				return backgroundLayer{}, "", false
+			}
+			continue
+		}
+		if function, ok := value.(*parser.Function); ok {
+			name := strings.ToLower(function.Name)
+			serialized := parser.SerializeValues([]parser.ComponentValue{function})
+			switch {
+			case name == "url":
+				layer.image = serialized
+			case name == "linear-gradient" || name == "radial-gradient" || name == "conic-gradient" ||
+				name == "repeating-linear-gradient" || name == "repeating-radial-gradient" || name == "repeating-conic-gradient":
+				layer.image = serialized
+			case name == "rgb" || name == "rgba" || name == "hsl" || name == "hsla" || name == "hwb" ||
+				name == "lab" || name == "lch" || name == "oklab" || name == "oklch" || name == "color":
+				color = serialized
+			default:
+				return backgroundLayer{}, "", false
+			}
+			continue
+		}
+		return backgroundLayer{}, "", false
+	}
+	if len(repeatTokens) > 0 {
+		layer.repeat = strings.Join(repeatTokens, " ")
+	}
+	if len(positionTokens) > 0 {
+		layer.position = strings.Join(positionTokens, " ")
+	}
+	if len(sizeTokens) > 0 {
+		layer.size = strings.Join(sizeTokens, " ")
+	}
+	if len(boxTokens) == 1 {
+		layer.origin = boxTokens[0]
+		layer.clip = boxTokens[0]
+	} else if len(boxTokens) == 2 {
+		layer.origin = boxTokens[0]
+		layer.clip = boxTokens[1]
+	} else if len(boxTokens) > 2 {
+		return backgroundLayer{}, "", false
+	}
+	return layer, color, true
 }
 
 func expandOverflow(declaration *cssom.Declaration) []*cssom.Declaration {

@@ -11,6 +11,10 @@ import (
 // TextRun is one shaped text run.
 type TextRun struct {
 	Text           string
+	FontFamily     string
+	FontWeight     string
+	FontStyle      string
+	FontStretch    string
 	FontSize       float64
 	LetterSpacing  float64
 	WordSpacing    float64
@@ -121,9 +125,29 @@ func (layout *Layout) shapeText(text string, style *styles.Style) []Glyph {
 	if shaper == nil {
 		shaper = SimpleShaper{}
 	}
-	metrics := MetricsForStyle(style)
-	glyphs := shaper.Shape(TextRun{Text: text, FontSize: fontSize, LetterSpacing: letterSpacing, WordSpacing: wordSpacing, AverageAdvance: metrics.AverageAdvance})
+	metrics := layout.metricsForStyle(style)
+	fontFamily := ""
+	fontWeight := ""
+	fontStyle := ""
+	fontStretch := ""
 	if style != nil {
+		fontFamily = style.GetString("font-family")
+		fontWeight = style.GetString("font-weight")
+		fontStyle = style.GetString("font-style")
+		fontStretch = style.GetString("font-stretch")
+	}
+	glyphs := shaper.Shape(TextRun{
+		Text:           text,
+		FontFamily:     fontFamily,
+		FontWeight:     fontWeight,
+		FontStyle:      fontStyle,
+		FontStretch:    fontStretch,
+		FontSize:       fontSize,
+		LetterSpacing:  letterSpacing,
+		WordSpacing:    wordSpacing,
+		AverageAdvance: metrics.AverageAdvance,
+	})
+	if _, simple := shaper.(SimpleShaper); simple && style != nil {
 		kerning := strings.ToLower(strings.TrimSpace(style.GetString("font-kerning")))
 		if kerning != "none" {
 			applyKerning(glyphs, fontSize, style.GetString("font-family"))

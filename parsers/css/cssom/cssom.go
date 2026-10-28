@@ -94,6 +94,9 @@ func convertRule(node parser.Node) Rule {
 	case *parser.QualifiedRule:
 		return convertQualifiedRule(typed)
 	case *parser.AtRule:
+		if strings.EqualFold(typed.Name, "font-face") {
+			return convertFontFaceRule(typed)
+		}
 		return convertAtRule(typed)
 	default:
 		return nil
@@ -142,7 +145,9 @@ func convertBlockContents(values []parser.ComponentValue) ([]*Declaration, []Rul
 		case *parser.QualifiedRule:
 			rules = append(rules, convertQualifiedRule(typed))
 		case *parser.AtRule:
-			rules = append(rules, convertAtRule(typed))
+			if rule := convertRule(typed); rule != nil {
+				rules = append(rules, rule)
+			}
 		}
 	}
 	return declarations, rules

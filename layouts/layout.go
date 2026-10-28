@@ -29,8 +29,10 @@ type Layout struct {
 	ViewportHeight float64
 	// MeasureText overrides the default simple advance-width measurement.
 	MeasureText func(text string, style *styles.Style) (width, height float64)
-	// Shaper provides simple glyph advances when MeasureText is not set.
+	// Shaper provides glyph advances when MeasureText is not set.
 	Shaper TextShaper
+	// Metrics overrides the default font metrics when set.
+	Metrics func(style *styles.Style) FontMetrics
 	// Dirty restricts incremental layout to nodes needing reflow. A nil map
 	// means full layout.
 	Dirty map[*dom.Node]bool
@@ -41,6 +43,13 @@ type Layout struct {
 // New creates a layout context for a viewport.
 func New(viewportWidth, viewportHeight float64) *Layout {
 	return &Layout{ViewportWidth: viewportWidth, ViewportHeight: viewportHeight, Shaper: SimpleShaper{}}
+}
+
+func (layout *Layout) metricsForStyle(style *styles.Style) FontMetrics {
+	if layout.Metrics != nil {
+		return layout.Metrics(style)
+	}
+	return MetricsForStyle(style)
 }
 
 // Layout lays out root in the viewport.
