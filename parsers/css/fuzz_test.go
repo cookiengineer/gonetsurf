@@ -12,6 +12,7 @@ import (
 	"gonetsurf/parsers/css/mediaqueries"
 	"gonetsurf/parsers/css/nesting"
 	"gonetsurf/parsers/css/parser"
+	"gonetsurf/parsers/css/properties"
 	"gonetsurf/parsers/css/selectors"
 	"gonetsurf/parsers/css/tokenizer"
 	"gonetsurf/parsers/css/values"
@@ -90,5 +91,43 @@ func BenchmarkParseSelectors(b *testing.B) {
 func BenchmarkParseColors(b *testing.B) {
 	for iteration := 0; iteration < b.N; iteration++ {
 		colors.Parse("rgb(10% 20% 30% / 50%)")
+	}
+}
+
+func BenchmarkGrammarMatch(b *testing.B) {
+	context := properties.Context()
+	values := parser.ParseComponentValueList("url(foo.png) no-repeat center / cover, red")
+	for iteration := 0; iteration < b.N; iteration++ {
+		_, _ = grammar.MatchDefinition(context.Properties["background"], values, context)
+	}
+}
+
+func BenchmarkValidateProperty(b *testing.B) {
+	for iteration := 0; iteration < b.N; iteration++ {
+		_, _ = properties.Validate("background", "url(foo.png) no-repeat center / cover, red")
+	}
+}
+
+func BenchmarkCSSOMSerialize(b *testing.B) {
+	sheet := cssom.Parse(string(benchmarkStylesheet))
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = sheet.Serialize()
+	}
+}
+
+func BenchmarkURange(b *testing.B) {
+	for iteration := 0; iteration < b.N; iteration++ {
+		_ = values.ParseURangeList("u+1-2, u+??, U+10FFFF")
+	}
+}
+
+func BenchmarkCascade(b *testing.B) {
+	declarations := []cascade.Declaration{
+		{Property: "color", Value: parser.ParseComponentValueList("red"), Origin: cascade.OriginAuthor, Order: 0},
+		{Property: "color", Value: parser.ParseComponentValueList("blue"), Origin: cascade.OriginUser, Order: 1},
+		{Property: "width", Value: parser.ParseComponentValueList("10px"), Origin: cascade.OriginAuthor, Order: 2},
+	}
+	for iteration := 0; iteration < b.N; iteration++ {
+		cascade.Cascade(declarations)
 	}
 }

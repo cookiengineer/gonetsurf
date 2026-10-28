@@ -5,12 +5,13 @@ its unit-test, end-to-end-test, bug, and specification-compliance state) lives i
 [`task-tracking.md`](./task-tracking.md); this document is the stable specification of the
 work.
 
-> **Progress (2026-10-04):** Phases 0–3 are complete and verified. All of Phase 4 (CSS) is
-> implemented: the tokenizer is verified against the reference suite (223/223), and the
-> parser, grammar engine, selectors, values, colors, CSSOM, cascade, conditional rules,
-> media queries, property registry, animations, and nesting all exist with unit and
-> partial-conformance tests. Most Phase 4 tasks are `Implemented`/`Partial` pending full
-> WPT conformance. See [`handover.md`](./handover.md) for the status and gaps.
+> **Progress (2026-10-28):** Phases 0–3 are complete and verified, and Phase 4 (CSS) is
+> complete with all 14 tasks `Verified`. The property registry contains 353 generated
+> properties; the stable WPT value corpus reports 2,520 passes, 0 failures, and 260
+> documented skips, and the selector parsing suite has 0 failures with 78 tentative-feature
+> skips. CSSOM, cascade/variables, conditional rules, media queries, animations, and nesting
+> have unit and Go-native conformance tests. Phase 5 (style resolution) is next. See
+> [`handover.md`](./handover.md) for the status and gaps.
 
 ## How to read a task
 

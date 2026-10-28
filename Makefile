@@ -44,6 +44,11 @@ fuzz:
 	$(GO) test ./urls/ -run=^$$ -fuzz=FuzzParse -fuzztime=$(FUZZTIME)
 	$(GO) test ./parsers/css/tokenizer/ -run=^$$ -fuzz=FuzzTokenize -fuzztime=$(FUZZTIME)
 	$(GO) test ./parsers/css/parser/ -run=^$$ -fuzz=FuzzParseStylesheet -fuzztime=$(FUZZTIME)
+	$(GO) test ./parsers/css/grammar/ -run=^$$ -fuzz=FuzzMatchDefinition -fuzztime=$(FUZZTIME)
+	$(GO) test ./parsers/css/selectors/ -run=^$$ -fuzz=FuzzParse -fuzztime=$(FUZZTIME)
+	$(GO) test ./parsers/css/values/ -run=^$$ -fuzz=FuzzMath -fuzztime=$(FUZZTIME)
+	$(GO) test ./parsers/css/cssom/ -run=^$$ -fuzz=FuzzParseSerialize -fuzztime=$(FUZZTIME)
+	$(GO) test ./parsers/css/properties/ -run=^$$ -fuzz=FuzzValidate -fuzztime=$(FUZZTIME)
 	$(GO) test ./parsers/css/ -run=^$$ -fuzz=FuzzCSS -fuzztime=$(FUZZTIME)
 	$(GO) test ./protocols/http1/ -run=^$$ -fuzz=FuzzReadResponse -fuzztime=$(FUZZTIME)
 

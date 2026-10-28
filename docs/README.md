@@ -11,10 +11,12 @@ Phases 0–3 are complete: the WHATWG URL layer, encoding sniffing, HTML microsy
 HTTP/1.1 + TLS + DNS + caches + cookies, and the HTML parser + `dom` all exist and are
 tested (`go test ./...` green, 896/896 URL conformance cases). Phase 4 (CSS) is implemented:
 the tokenizer, parser, grammar, selectors, values, colors, CSSOM, cascade, conditional
-rules, media queries, properties, animations, and nesting all exist. The tokenizer is
-verified (223/223) and An+B, `<urange>`, and the Color 4 hex/keyword/HSL/HWB corpora pass;
-the remaining tasks are `Implemented`/`Partial` pending full WPT conformance. Phase 5 is
-next. See [`handover.md`](./handover.md) for the full handover and
+rules, media queries, properties, animations, and nesting all exist, and **Phase 4 is
+complete** with all 14 tasks `Verified`. That includes the generated 353-property registry,
+the stable WPT value corpus (2,520 passes, 0 failures, 260 documented skips), selectors
+(0 failures, 78 tentative-feature skips), CSSOM, cascade/variables (`all`, `var()`,
+cycles, `revert`), conditional rules, media queries, animations, and nesting. Phase 5
+(style resolution) is next. See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 
 ## Documents

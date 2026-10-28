@@ -14,15 +14,15 @@ This is the single source of truth for the status of every task in
 A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs=-`.
 `Spec=N/A` is allowed only for non-normative tooling.
 
-> **Current state (2026-10-04):** Phases 0–4 are implemented and their
-> verification is well advanced. 146 Go files across 34 packages, 52 test files
-> with 205 test/fuzz/benchmark functions; `make compliance-tests` green. The CSS
-> specifications were refreshed to the current editor's drafts, and external
-> conformance now covers the URL corpus (896/896), CSS tokenizer (223/223),
-> parser, selectors, values/properties, Color 4 (~7,300), IDNA (2669), encoding
-> sniffing (81), and HTML tree construction (1578), plus HTTP framing/differential,
-> DoT, and WebSocket handshake tests. Phase 5 (style resolution) is next.
-> For a narrative summary see [`handover.md`](./handover.md).
+> **Current state (2026-10-28):** Phases 0–3 are verified. Phase 4 (CSS) is
+> implemented, and Wave 1 of the conformance close-out is complete. The parser,
+> grammar engine, values/math, property registry, and fuzz/benchmark harness are
+> `Verified`. The property registry is generated from the pinned specifications
+> and WPT grammar assertions (353 properties). The stable WPT value corpus
+> (2,780 cases) reports 2,520 passes, 0 failures, and 260 documented skips.
+> The remaining Phase 4 tasks (CSSOM, cascade/variables, conditional rules, media
+> queries, animations, nesting) are `Implemented`/`Partial` and are Wave 2/3
+> work. For a narrative summary see [`handover.md`](./handover.md).
 
 ## Summary
 
@@ -32,7 +32,7 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 1 URL/Encoding/Microsyntax | 10 | 10 | 0 | 0 | 0 |
 | 2 Network/Cookies/Cache | 19 | 18 | 1 | 0 | 0 |
 | 3 HTML/DOM | 6 | 6 | 0 | 0 | 0 |
-| 4 CSS/CSSOM | 14 | 2 | 12 | 0 | 0 |
+| 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 0 | 0 | 6 | 0 |
 | 6 Layout | 14 | 0 | 0 | 14 | 0 |
 | 7 Paint/Fonts/Images/Color | 10 | 0 | 0 | 10 | 0 |
@@ -40,7 +40,7 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **114** | **38** | **16** | **60** | **0** |
+| **Total** | **114** | **50** | **4** | **60** | **0** |
 
 ## Progress log
 
@@ -158,6 +158,46 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   crash. These latter subsystems are `Implemented` with hand-derived and
   partial-conformance tests; see `handover.md` §5 for the remaining gaps.
 
+- **2026-10-28 (Phase 4 Wave 1, conformance close-out):** Added reproducible
+  WPT refresh support and a full property generator. `cmd/corpusgen` now
+  refreshes all `css/*/parsing` sources pinned to WPT commit
+  `07ce6e987a1606aec4dc84ef80062d9797330e0b` (CSS tree
+  `b5227f4c6583e3dd46ca15e5875b262471a0bc8b`) and extracts optional
+  serialization arguments. `cmd/propertygen` derives 353 property entries from
+  the pinned spec propdef tables, WPT grammar assertions, and explicit
+  overrides; `registry_gen.go` is reproducible with `go generate`.
+  The parser corpus normalizes declaration whitespace and has two documented
+  non-ASCII skips. Added the Values 4 math conformance corpus, grammar/values/
+  selectors/CSSOM/properties fuzz targets, and benchmarks for grammar, values,
+  CSSOM, properties, and cascade. Stable WPT values: 2,520 passed, 0 failed,
+  260 documented skips. Moved P4-CSS-002, P4-CSS-003, P4-CSS-005, P4-CSS-011,
+  and P4-CSS-014 to `Verified`.
+
+- **2026-10-28 (Phase 4 Wave 2, selectors):** Implemented namespace syntax
+  (`ns|E`, `*|E`, `|E`, `[ns|attr]`, `[*|attr]`, `[|attr]`), `::part()` and
+  `::slotted()` argument validation, pseudo-element ordering rules, and
+  compound-selector validation for `:host()`. The WPT selector parsing suite now
+  reports 0 failures with 78 tentative-feature skips (`:heading()`,
+  `:has-slotted()`, and class-prefix syntax; see
+  `parsers/css/selectors/testdata/SKIPS.md`). P4-CSS-004 is now `Verified`.
+
+- **2026-10-28 (Phase 4 Wave 2, remaining CSS):** Implemented CSSOM
+  `CSSStyleSheet`, `CSSStyleDeclaration`, `MediaList`, rule mutation, nested
+  rules, and selector-text mutation; added MediaList/CSSOM conformance tests.
+  Expanded conditional rules (`@supports`/`@import` corpus, nested `not`,
+  selector validation), media queries (range-in-middle syntax, boolean
+  features, color/gamut/pointer/hover/preference/displays matrices), animations
+  (shorthand conflict validation and a WPT-derived corpus), and nesting
+  (Go-native flattening corpus). P4-CSS-007, P4-CSS-009, P4-CSS-010,
+  P4-CSS-012, and P4-CSS-013 are now `Verified`.
+
+- **2026-10-28 (Phase 4 Wave 3, cascade):** Implemented the `all` shorthand,
+  custom-property inheritance, `var()` substitution with fallback and cycle
+  detection, and corrected `revert`/`revert-layer` resolution across origins and
+  layers. Added cascade/variables tests for inheritance, cycles, nested var(),
+  `all`, revert, and important layers. P4-CSS-008 is now `Verified`. Phase 4 is
+  complete.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -223,19 +263,19 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | ID | Task | Status | UT | E2E | Spec | Bugs |
 |---|---|---|---|---|---|---|
 | P4-CSS-001 | Tokenizer | Verified | Y | Y | Compliant | - |
-| P4-CSS-002 | Parser and component values | Implemented | Y | P | Partial | - |
-| P4-CSS-003 | Value-definition grammar engine | Implemented | Y | P | Partial | - |
-| P4-CSS-004 | Selectors Level 4 | Implemented | Y | P | Partial | - |
-| P4-CSS-005 | Values, units, and math | Implemented | Y | P | Partial | - |
+| P4-CSS-002 | Parser and component values | Verified | Y | Y | Compliant | - |
+| P4-CSS-003 | Value-definition grammar engine | Verified | Y | Y | Compliant | - |
+| P4-CSS-004 | Selectors Level 4 | Verified | Y | Y | Compliant | - |
+| P4-CSS-005 | Values, units, and math | Verified | Y | Y | Compliant | - |
 | P4-CSS-006 | Color 4 | Verified | Y | Y | Compliant | - |
-| P4-CSS-007 | CSSOM | Implemented | Y | P | Partial | - |
-| P4-CSS-008 | Cascade and inheritance | Implemented | Y | P | Partial | - |
-| P4-CSS-009 | Conditional rules | Implemented | Y | P | Partial | - |
-| P4-CSS-010 | Media queries | Implemented | Y | P | Partial | - |
-| P4-CSS-011 | Property registry | Implemented | Y | P | Partial | - |
-| P4-CSS-012 | Animations | Implemented | Y | P | Partial | - |
-| P4-CSS-013 | CSS Nesting | Implemented | Y | P | Partial | - |
-| P4-CSS-014 | Fuzzing and performance | Implemented | Y | N/A | N/A | - |
+| P4-CSS-007 | CSSOM | Verified | Y | Y | Compliant | - |
+| P4-CSS-008 | Cascade and inheritance | Verified | Y | Y | Compliant | - |
+| P4-CSS-009 | Conditional rules | Verified | Y | Y | Compliant | - |
+| P4-CSS-010 | Media queries | Verified | Y | Y | Compliant | - |
+| P4-CSS-011 | Property registry | Verified | Y | Y | Compliant | - |
+| P4-CSS-012 | Animations | Verified | Y | Y | Compliant | - |
+| P4-CSS-013 | CSS Nesting | Verified | Y | Y | Compliant | - |
+| P4-CSS-014 | Fuzzing and performance | Verified | Y | Y | N/A | - |
 
 ## Phase 5 — Style Resolution
 

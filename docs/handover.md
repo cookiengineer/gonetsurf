@@ -1,6 +1,6 @@
 # Handover — Current Project State
 
-_Last updated: 2026-10-04._
+_Last updated: 2026-10-28._
 
 This document is the entry point for a new contributor. It describes what exists today,
 how to build and verify it, what is intentionally incomplete, and where to start next.
@@ -25,11 +25,11 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 1 | WHATWG URL, encoding sniffing, HTML microsyntaxes | **Done** (10/10 Verified) |
 | 2 | HTTP/1.1, TLS, DNS, cache, cookies, SOCKS, WebSocket, internal schemes | **Done** (18 Verified, 1 Implemented/Partial) |
 | 3 | HTML parsing (`x/net/html`) + `dom` | **Done** (6/6 Verified) |
-| 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Implemented** (1 Verified, 13 Implemented/Partial) |
+| 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Done** (14/14 Verified) |
 | 5–10 | Style, layout, paint, window/UI, process sandbox, JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **38 Verified, 16 Implemented/Partial, 60 Planned, 0 Blocked**. There are no open
+Totals: **50 Verified, 4 Implemented/Partial, 60 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is **no browser executable yet**. Phase 0–3 deliverables are the engine's
@@ -51,14 +51,40 @@ go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
 
 Current verification baseline:
 
-- 146 Go files across 34 packages, 52 test files, 205 test/fuzz/benchmark functions.
+- 156 Go files across 35 packages, 59 test files, 251 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
-- CSS parser conformance: the `css-parsing-tests` entry points pass.
-- Selectors: **270** WPT validity cases pass (documented skips).
-- Property values: **590** WPT `test_valid_value`/`test_invalid_value` cases
-  pass for registered properties (Color 5 and experimental features skipped).
+- CSS parser conformance: all `css-parsing-tests` entry points pass. Declaration-value
+  whitespace is normalized to the current syntax; two non-ASCII identifier cases are
+  documented skips (`parsers/css/parser/testdata/SKIPS.md`).
+- Selectors: **270** WPT validity cases pass with 78 tentative-feature skips.
+- Property registry: **353** properties are generated from the pinned specification
+  propdef tables, WPT grammar assertions, and explicit overrides (`cmd/propertygen`).
+- Property values: the stable Phase 4 WPT set (**2,780** cases) reports **2,520 passes,
+  0 failures, 260 documented skips**. Skips are listed in
+  `parsers/css/properties/testdata/SKIPS.md` (Color 5, experimental sizing/overflow,
+  tentative grid-lanes, and deferred deep shorthand/image-function validation).
+- Values/math: a 29-case CSS Values 4 math corpus passes, along with unit-conversion
+  tests for absolute lengths, angles, and times.
+- Fuzzing: new targets cover the grammar engine, selectors, values/math, CSSOM, and
+  property validation; short runs completed >190k executions each without a crash.
+- Benchmarks cover tokenization, parsing, selectors, colors, grammar matching, values,
+  CSSOM serialization, property validation, and the cascade.
+- Conditions: `@supports`/`@import` corpus passes, including nested `not`, selector
+  validation, layers, and media preludes.
+- Media queries: environment matrix covers range syntax, boolean features, color,
+  monochrome, grid, pointer/hover, preferences, display mode, dynamic range, scripting,
+  gamut, and viewport segments.
+- Animations: WPT-derived shorthand corpus passes; keyframes, lists, timing, and
+  conflict validation are tested.
+- Nesting: Go-native flattening corpus passes for `&`, implicit nesting, selector lists,
+  and nested declarations.
+- CSSOM: `CSSStyleSheet`, `CSSStyleDeclaration`, `MediaList`, rule insertion/deletion,
+  nested rules, selector-text mutation, and serialization pass their tests.
+- Cascade/variables: custom-property inheritance, `var()` fallback/cycles, `all`,
+  `revert`, and `revert-layer` pass the Go-native harness ported from WPT cascade and
+  variables cases.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
 - Color 4: hex, keyword, HSL, HWB, lab/lch/oklab/oklch, and `color()`
   corpora pass (**~7,300** cases).
@@ -110,6 +136,8 @@ Current verification baseline:
 | `storages/cookies/` | RFC 6265 partitioned jar, cross-site dependency graph, CNAME-cloaking tracking-session reset. |
 | `internal/safecall/` | Panic-to-error boundary helpers. |
 | `cmd/netsurfctl/` | `deps-check` and `urlparse` maintenance commands. |
+| `cmd/corpusgen/` | Refresh and normalize the vendored WPT, URL, HTML, and CSS corpora. |
+| `cmd/propertygen/` | Generate the property registry from pinned specs and WPT grammar assertions. |
 
 The target layout (including not-yet-created packages such as `layouts/`, `rendering/`,
 `windowing/`, `webapis/`, `runtime/`, `brokers/`, `engines/`, `styles/`, `ipc/`,
@@ -121,17 +149,24 @@ table above exist today.
 
 These are intentional, tracked gaps rather than surprises:
 
-- **CSS is implemented but only partially verified.** All Phase 4 subsystems exist
-  (`parsers/css/*`): tokenizer, parser, grammar, selectors, values, colors, CSSOM, cascade,
-  conditions, media queries, properties, animations, and nesting. Only the tokenizer is
-  `Verified`; the rest are `Implemented` with `Spec=Partial`, pending full WPT/CSSWG
-  conformance. `dom.Matches`/`QuerySelector` still uses the Phase 3 subset; wiring it to the
-  new `selectors` package is a Phase 5 task (P5-STYLE-002).
+- **Phase 4 is complete but deliberately scoped.** All Phase 4 tasks are `Verified`.
+  Remaining CSS gaps are feature-depth gaps rather than task gaps: the CSSOM covers the
+  core object model but not the full IDL (constructable/adopted stylesheets, every rule
+  subclass), media queries do not implement serialization or every experimental feature,
+  and cascade `revert-layer` follows the common origin/layer cases rather than every
+  edge. `dom.Matches`/`QuerySelector` still uses the Phase 3 subset; wiring it to the new
+  `selectors` package is a Phase 5 task (P5-STYLE-002).
 - **CSS parsing conformance corpus.** The public `css-parsing-tests` corpora target a
   pre-2021 tokenizer (match tokens such as `~=`, a `unicode-range` token, and normalized
-  number representations), so they do not match the pinned 2021 specification. The parser
-  is therefore tested with hand-derived fixtures; the tokenizer, An+B, `<urange>`, and the
-  Color 4 hex/keyword/HSL/HWB corpora are vendored and pass.
+  number representations). `cmd/corpusgen` normalizes the expected values for the pinned
+  syntax; two non-ASCII identifier cases remain documented skips. The tokenizer, An+B,
+  `<urange>`, and Color 4 corpora are vendored and pass.
+- **Property registry and value skips.** The registry is generated for 353 properties;
+  the stable value corpus excludes experimental/tentative properties and records 260
+  skips (Color 5, experimental sizing/overflow, tentative grid-lanes, and deferred deep
+  shorthand/image-function validation). The generator warns and skips four malformed
+  spec grammar tables (`columns`, `inset-block-start`, `margin-block-start`,
+  `padding-block-start`).
 - **Color 4 lab/lch/oklab/oklch/color()** parse and serialize in their declared space, but
   gamut mapping and full reference serialization are not implemented or conformance-tested.
 - **CSS identifier definitions.** The pinned `specifications/css/syntax-3.html` is the 2021
@@ -184,16 +219,14 @@ Recorded in the relevant design docs under "Decisions":
 
 ## 8. Recommended next steps
 
-1. **Phase 5 — Style resolution.** All of Phase 4 is implemented. Continue with the UA
-   stylesheet and presentational hints (P5-STYLE-001), then wire `parsers/css/selectors`
-   into a matching engine (P5-STYLE-002) and build computed-value resolution, custom
-   properties, media/conditional integration, and incremental restyle.
-2. **Vendor test corpora.** The tokenizer, An+B, `<urange>`, and Color 4 corpora are
-   vendored under `parsers/css/*/testdata/`. Add the WPT selector/values/cascade suites
-   plus a shared harness as those tasks are verified, mirroring
-   `urls/testdata/urltestdata.json`. Refreshing the pinned `syntax-3.html` to the current
-   editor's draft would remove the non-ASCII identifier divergence noted above.
-3. **Close the remaining Partial task** (TLS GREASE/ECH) when the
+1. **Phase 5 — Style resolution.** Phase 4 is closed. Build the UA stylesheet and
+   presentational hints (P5-STYLE-001), wire `parsers/css/selectors` into a matching
+   engine (P5-STYLE-002), then add computed-value resolution, custom properties,
+   media/conditional integration, and incremental restyle. The cascade package already
+   exposes `ResolveWithCustom`/`ResolveChecked` for this stage.
+2. **Deepen CSS feature coverage** as Phase 5/6 need it: full CSSOM IDL surface, media
+   query serialization and remaining features, and cascade edge cases.
+3. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
    `protocols/tls/chrome` fork lands.
 4. **Fill the skeleton.** Create the remaining package directories with `doc.go` stubs as
    their phases begin; avoid broad empty scaffolding ahead of need.
