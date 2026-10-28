@@ -146,7 +146,7 @@ func normalizeCorpus(value any) (any, error) {
 		if !keep {
 			continue
 		}
-		result = append(result, items[index], expected)
+		result = append(result, items[index], normalizeDeclarationWhitespace(expected))
 	}
 	return result, nil
 }
@@ -182,6 +182,37 @@ func normalizeExpected(value any) (any, bool) {
 		result = append(result, normalized)
 	}
 	return result, true
+}
+
+// normalizeDeclarationWhitespace trims the leading and trailing whitespace
+// markers the 2021 corpus preserves around declaration values. Current CSS
+// Syntax 3 discards that whitespace when parsing a declaration.
+func normalizeDeclarationWhitespace(value any) any {
+	items, ok := value.([]any)
+	if !ok {
+		return value
+	}
+	if len(items) == 4 && items[0] == "declaration" {
+		if values, ok := items[2].([]any); ok {
+			items[2] = trimWhitespaceMarkers(values)
+		}
+	}
+	for index, item := range items {
+		items[index] = normalizeDeclarationWhitespace(item)
+	}
+	return items
+}
+
+func trimWhitespaceMarkers(values []any) []any {
+	start := 0
+	for start < len(values) && values[start] == " " {
+		start++
+	}
+	end := len(values)
+	for end > start && values[end-1] == " " {
+		end--
+	}
+	return values[start:end]
 }
 
 func isEOFError(value any) bool {

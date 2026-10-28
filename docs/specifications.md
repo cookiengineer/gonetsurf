@@ -160,12 +160,16 @@ the change in this document.
 
 Offline conformance data lives under `testdata/upstream/` and is committed so
 that `go test` never requires the network. `cmd/corpusgen` reads it and writes
-the normalized corpora consumed by the package tests (`make corpus-refresh`
-re-downloads the raw sources first).
+the normalized corpora consumed by the package tests; `make corpus-refresh`
+re-downloads the raw CSS and WPT parsing sources first. The WPT snapshot is
+pinned by the revision recorded in `testdata/upstream/wpt/SOURCE`.
+`cmd/propertygen` reads the pinned specification propdef tables and the WPT
+grammar assertions to generate `parsers/css/properties/registry_gen.go`.
 
 | Directory | Upstream | Used by |
 |---|---|---|
 | `testdata/upstream/css-parsing-tests/` | CourtBouillon/css-parsing-tests | CSS tokenizer, parser, selectors (An+B), colors |
+| `testdata/upstream/wpt/css/*/parsing/` | web-platform-tests/wpt | Property value tables, selector validity tables, and grammar assertions for `cmd/propertygen` |
 | `testdata/upstream/wpt/url/resources/` | web-platform-tests/wpt | URL and IDNA conformance |
 | `testdata/upstream/wpt/acid/` | web-platform-tests/wpt | Acid2/Acid3 (Phase 7+) |
 | `testdata/upstream/html5lib-tests/` | html5lib/html5lib-tests | HTML tokenizer, tree construction, encoding |
@@ -175,3 +179,10 @@ see `testdata/upstream/acid/SOURCE`.
 
 - **D-SPEC-004:** Vendored corpora are pinned with a `SOURCE` file recording the
   upstream URL, revision where known, license, and fetch date.
+- **D-SPEC-006:** Conditional-rule, media-query, cascade/variables, nesting, and CSSOM
+  conformance cases are Go-native ports of the pinned spec and WPT cases. The upstream
+  tests normally assert through `getComputedStyle` or the browser JS DOM, which do not
+  exist until Phase 5.
+- **D-SPEC-005:** The Phase 4 property set is the stable `css/*/parsing` subset
+  listed in `cmd/corpusgen/values.go`; additional parsing directories are
+  vendored for later phases but are not part of the current value suite.

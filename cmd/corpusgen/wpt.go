@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -14,20 +15,26 @@ type selectorCall struct {
 }
 
 func generateWPTSelectors(upstream, root string) error {
-	pattern := filepath.Join(upstream, "wpt", "css", "selectors", "parsing", "*.html")
-	files, err := filepath.Glob(pattern)
-	if err != nil {
-		return err
-	}
+	base := filepath.Join(upstream, "wpt", "css", "selectors", "parsing")
 	corpus := []any{}
-	for _, file := range files {
-		encoded, err := readFileString(file)
+	err := filepath.WalkDir(base, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".html") {
+			return nil
+		}
+		encoded, err := readFileString(path)
 		if err != nil {
 			return err
 		}
 		for _, call := range extractSelectorCalls(encoded) {
 			corpus = append(corpus, call.Selector, call.Valid)
 		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 	return writeJSON(filepath.Join(root, "parsers/css/selectors/testdata/wpt-selectors.json"), corpus)
 }
