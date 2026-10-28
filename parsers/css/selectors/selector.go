@@ -683,6 +683,9 @@ func parseAttributeSelector(block *parser.Block) (*AttributeSelector, error) {
 			index++
 		}
 	}
+	if index >= len(trimmed) {
+		return nil, fmt.Errorf("css selectors: expected attribute name")
+	}
 	nameToken, ok := parser.AsToken(trimmed[index])
 	if !ok || nameToken.Type != tokenizer.TokenIdent {
 		return nil, fmt.Errorf("css selectors: expected attribute name")

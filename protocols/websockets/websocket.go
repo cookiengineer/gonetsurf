@@ -288,7 +288,7 @@ func (connection *Conn) readFrame() (bool, Opcode, []byte, error) {
 			return false, 0, nil, ErrProtocol
 		}
 	}
-	if length > connection.maxPayload {
+	if length < 0 || length > connection.maxPayload {
 		return false, 0, nil, ErrProtocol
 	}
 	payload := make([]byte, length)
