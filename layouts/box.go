@@ -65,6 +65,7 @@ func (edges Edges) Vertical(base float64) float64 {
 // Box is a node in the CSS box tree.
 type Box struct {
 	Node       *dom.Node
+	Pseudo     string
 	Style      *styles.Style
 	Kind       BoxKind
 	Text       string
@@ -123,10 +124,12 @@ func (box *Box) IsBlockLevel() bool {
 // BuildDocument builds the box tree for a document using the styles computed
 // by engine.
 func BuildDocument(document *dom.Document, engine *styles.Engine) *Box {
-	if document == nil {
+	if document == nil || engine == nil {
 		return nil
 	}
-	return Build(&document.Node, engine.ComputeDocumentTree(document))
+	computed := engine.ComputeDocumentTree(document)
+	pseudo := computePseudoStyles(&document.Node, engine, computed)
+	return buildRoot(&document.Node, computed, pseudo)
 }
 
 // BuildTree builds the box tree for an element subtree and computes styles
@@ -141,6 +144,10 @@ func BuildTree(root *dom.Node, engine *styles.Engine) *Box {
 // Build builds the box tree rooted at root using the supplied computed styles.
 // If root is a Document, its document element is used.
 func Build(root *dom.Node, computed map[*dom.Node]*styles.Style) *Box {
+	return buildRoot(root, computed, nil)
+}
+
+func buildRoot(root *dom.Node, computed map[*dom.Node]*styles.Style, pseudo map[*dom.Node]map[string]*styles.Style) *Box {
 	if root == nil {
 		return nil
 	}
@@ -164,14 +171,14 @@ func Build(root *dom.Node, computed map[*dom.Node]*styles.Style) *Box {
 	if style == nil {
 		return nil
 	}
-	boxes := buildNode(root, computed, style)
+	boxes := buildNode(root, computed, pseudo, style)
 	if len(boxes) == 0 {
 		return nil
 	}
 	return boxes[0]
 }
 
-func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, inherited *styles.Style) []*Box {
+func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, pseudo map[*dom.Node]map[string]*styles.Style, inherited *styles.Style) []*Box {
 	switch node.Type {
 	case dom.TextNode:
 		if inherited == nil || strings.TrimSpace(node.Data) == "" {
@@ -201,8 +208,14 @@ func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, inherited *
 		return nil
 	}
 	children := []*Box{}
+	if before := buildPseudoBox(node, "before", pseudo); before != nil {
+		children = append(children, before)
+	}
 	for _, child := range node.Children() {
-		children = append(children, buildNode(child, computed, style)...)
+		children = append(children, buildNode(child, computed, pseudo, style)...)
+	}
+	if after := buildPseudoBox(node, "after", pseudo); after != nil {
+		children = append(children, after)
 	}
 	if display == "contents" {
 		return children
@@ -235,6 +248,148 @@ func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, inherited *
 		box.Children = wrapAnonymous(box.Children, style)
 	}
 	return []*Box{box}
+}
+
+func computePseudoStyles(root *dom.Node, engine *styles.Engine, computed map[*dom.Node]*styles.Style) map[*dom.Node]map[string]*styles.Style {
+	if root == nil || engine == nil || !engine.HasGeneratedContent() {
+		return nil
+	}
+	result := map[*dom.Node]map[string]*styles.Style{}
+	root.Descendants(func(node *dom.Node) bool {
+		if node.Type != dom.ElementNode {
+			return true
+		}
+		parentStyle := computed[node]
+		if parentStyle == nil {
+			return true
+		}
+		for _, pseudo := range []string{"before", "after"} {
+			if !engine.HasPseudoElement(pseudo) {
+				continue
+			}
+			style := engine.ComputePseudo(node, parentStyle, pseudo)
+			if style == nil {
+				continue
+			}
+			if _, ok := generatedContent(node, style); !ok {
+				continue
+			}
+			if result[node] == nil {
+				result[node] = map[string]*styles.Style{}
+			}
+			result[node][pseudo] = style
+		}
+		return true
+	})
+	if len(result) == 0 {
+		return nil
+	}
+	return result
+}
+
+func buildPseudoBox(node *dom.Node, pseudo string, pseudoStyles map[*dom.Node]map[string]*styles.Style) *Box {
+	stylesByPseudo := pseudoStyles[node]
+	if stylesByPseudo == nil {
+		return nil
+	}
+	style := stylesByPseudo[pseudo]
+	if style == nil {
+		return nil
+	}
+	content, ok := generatedContent(node, style)
+	if !ok {
+		return nil
+	}
+	display := normalizeDisplay(style.GetString("display"))
+	if display == "" {
+		display = "inline"
+	}
+	if display == "none" {
+		return nil
+	}
+	kind := BlockBox
+	if isInlineDisplay(display) {
+		kind = InlineBox
+	}
+	box := &Box{
+		Pseudo:  pseudo,
+		Style:   style,
+		Kind:    kind,
+		Margin:  styleEdges(style, "margin"),
+		Padding: styleEdges(style, "padding"),
+		Border:  borderEdges(style),
+	}
+	box.FontSize, box.LineHeight = fontMetrics(style)
+	box.Ascent = MetricsForStyle(style).Ascent
+	box.TextRotation = textRotation(style.GetString("writing-mode"))
+	box.ZIndex = parseZIndex(style.GetString("z-index"))
+	box.ClipX = clipsOverflow(style.GetString("overflow-x"))
+	box.ClipY = clipsOverflow(style.GetString("overflow-y"))
+	box.ScrollX = scrollsOverflow(style.GetString("overflow-x"))
+	box.ScrollY = scrollsOverflow(style.GetString("overflow-y"))
+	if content != "" {
+		textBox := &Box{
+			Style:  style,
+			Kind:   TextBox,
+			Text:   content,
+			Parent: box,
+		}
+		textBox.FontSize, textBox.LineHeight = fontMetrics(style)
+		textBox.Ascent = MetricsForStyle(style).Ascent
+		box.Children = []*Box{textBox}
+	}
+	if box.Kind == BlockBox {
+		box.Children = wrapAnonymous(box.Children, style)
+	}
+	return box
+}
+
+func generatedContent(node *dom.Node, style *styles.Style) (string, bool) {
+	if style == nil {
+		return "", false
+	}
+	text := strings.TrimSpace(style.GetString("content"))
+	if text == "" || strings.EqualFold(text, "normal") || strings.EqualFold(text, "none") {
+		return "", false
+	}
+	var builder strings.Builder
+	found := false
+	for _, value := range parser.ParseComponentValueList(text) {
+		if parser.IsWhitespace(value) {
+			continue
+		}
+		if token, ok := parser.AsToken(value); ok {
+			switch token.Type {
+			case tokenizer.TokenString:
+				builder.WriteString(token.Value)
+				found = true
+			case tokenizer.TokenIdent:
+				switch strings.ToLower(token.Value) {
+				case "open-quote":
+					builder.WriteRune('"')
+					found = true
+				case "close-quote":
+					builder.WriteRune('"')
+					found = true
+				}
+			}
+			continue
+		}
+		if function, ok := value.(*parser.Function); ok && strings.EqualFold(function.Name, "attr") {
+			name := strings.TrimSpace(parser.SerializeValues(function.Value))
+			if comma := strings.IndexByte(name, ','); comma >= 0 {
+				name = strings.TrimSpace(name[:comma])
+			}
+			name = strings.Trim(name, "\"'")
+			if name != "" {
+				found = true
+				if value, exists := node.GetAttribute(name); exists {
+					builder.WriteString(value)
+				}
+			}
+		}
+	}
+	return builder.String(), found
 }
 
 func isInlineDisplay(display string) bool {

@@ -156,3 +156,15 @@ func TestNestedScrollPaintsContentAtSingleOffset(t *testing.T) {
 		t.Errorf("scrolled pixel = %#v, want blue", pixel)
 	}
 }
+
+func TestPagePaintsGeneratedContent(t *testing.T) {
+	page := testPage(t, `<!doctype html><html><head><style>
+		html, body { margin:0; padding:0 }
+		#box { display:block }
+		#box::before { content:""; display:inline-block; width:20px; height:20px; background:#ff0000 }
+	</style></head><body><div id="box"></div></body></html>`, 100, 100)
+	surface := page.Render()
+	if pixel := testPixelAt(surface, 5, 5); pixel != (Color{Red: 255, Green: 0, Blue: 0, Alpha: 255}) {
+		t.Errorf("generated content pixel = %#v", pixel)
+	}
+}

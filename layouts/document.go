@@ -53,6 +53,7 @@ func (documentLayout *DocumentLayout) Reflow() *Box {
 		return documentLayout.box
 	}
 	if documentLayout.hasLayout && documentLayout.Engine != nil &&
+		!documentLayout.Engine.HasGeneratedContent() &&
 		documentLayout.structureVersion == documentLayout.Document.StructuralVersion() {
 		dirtyNodes := documentLayout.Document.DirtyNodes()
 		styleMap := documentLayout.Engine.ComputeDocumentTree(documentLayout.Document)

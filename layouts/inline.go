@@ -380,6 +380,9 @@ func isAtomicInline(box *Box) bool {
 	if box == nil || box.Style == nil {
 		return false
 	}
+	if box.Pseudo != "" {
+		return true
+	}
 	switch displayOf(box) {
 	case "inline-block", "inline-flex", "inline-grid", "inline-table":
 		return true
@@ -542,23 +545,27 @@ func inlineVerticalAlign(style *styles.Style) string {
 // Text words keep logical Text while VisualText and visual placement follow
 // the bidi ordering.
 func orderInlineLine(runs []inlineRun, style *styles.Style) []inlineRun {
-	textRuns := make([]int, 0, len(runs))
+	sequence := make([]int, 0, len(runs))
 	for index, run := range runs {
-		if !run.atomic && run.text != "" {
-			textRuns = append(textRuns, index)
+		if run.atomic || run.text != "" {
+			sequence = append(sequence, index)
 		}
 	}
-	if len(textRuns) < 2 {
+	if len(sequence) < 2 {
 		return runs
 	}
-	joined := make([]rune, 0, len(textRuns)*4)
-	offsets := make([][2]int, len(textRuns))
-	for position, index := range textRuns {
+	joined := make([]rune, 0, len(sequence)*4)
+	offsets := make([][2]int, len(sequence))
+	for position, index := range sequence {
 		if position > 0 {
 			joined = append(joined, ' ')
 		}
 		start := len(joined)
-		joined = append(joined, []rune(runs[index].text)...)
+		if runs[index].atomic {
+			joined = append(joined, '\uFFFC')
+		} else {
+			joined = append(joined, []rune(runs[index].text)...)
+		}
 		offsets[position] = [2]int{start, len(joined)}
 	}
 	defaultDirection := bidi.LeftToRight
@@ -566,9 +573,9 @@ func orderInlineLine(runs []inlineRun, style *styles.Style) []inlineRun {
 		defaultDirection = bidi.RightToLeft
 	}
 	bidiRuns := SegmentBidi(string(joined), defaultDirection)
-	order := make([]int, 0, len(textRuns))
-	visual := make(map[int]string, len(textRuns))
-	assigned := make(map[int]bool, len(textRuns))
+	order := make([]int, 0, len(sequence))
+	visual := make(map[int]string, len(sequence))
+	assigned := make(map[int]bool, len(sequence))
 	for _, run := range bidiRuns {
 		indices := []int{}
 		for position, span := range offsets {
@@ -589,9 +596,9 @@ func orderInlineLine(runs []inlineRun, style *styles.Style) []inlineRun {
 				continue
 			}
 			assigned[position] = true
-			index := textRuns[position]
+			index := sequence[position]
 			order = append(order, index)
-			if run.Direction == bidi.RightToLeft {
+			if run.Direction == bidi.RightToLeft && !runs[index].atomic {
 				visual[index] = bidi.ReverseString(runs[index].text)
 			} else {
 				visual[index] = runs[index].text

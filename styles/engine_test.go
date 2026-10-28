@@ -423,3 +423,27 @@ func TestStyleBackgroundShorthandWithCustomProperty(t *testing.T) {
 		t.Errorf("color = %q, want white", got)
 	}
 }
+
+func TestPseudoElementComputedStyle(t *testing.T) {
+	document, _, _, paragraph, engine := engineFixture(`
+		p { color: blue }
+		p::before { content: "*"; color: red }
+		p::after { content: attr(data-label) }
+	`)
+	paragraph.SetAttribute("data-label", "tail")
+	styles := engine.ComputeDocumentTree(document)
+	before := engine.ComputePseudo(paragraph, styles[paragraph], "before")
+	if before == nil || before.GetString("color") != canonicalColor("red") {
+		t.Errorf("before style = %#v", before)
+	}
+	after := engine.ComputePseudo(paragraph, styles[paragraph], "after")
+	if after == nil || after.GetString("color") != canonicalColor("blue") {
+		t.Errorf("after color = %q", after.GetString("color"))
+	}
+	if !engine.HasPseudoElement("before") || !engine.HasPseudoElement("after") || !engine.HasGeneratedContent() {
+		t.Error("generated-content flags were not set")
+	}
+	if style := engine.ComputePseudo(paragraph, styles[paragraph], "selection"); style != nil {
+		t.Error("unsupported pseudo-element was computed")
+	}
+}

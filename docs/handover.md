@@ -66,7 +66,7 @@ go test ./urls/ -run='^$' -fuzz='^FuzzParse$' -fuzztime=30s
 
 Current verification baseline:
 
-- 315 Go files across 54 packages, 129 test files, 573 test/fuzz/benchmark functions.
+- 315 Go files across 54 packages, 129 test files, 578 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -113,7 +113,9 @@ Current verification baseline:
 - Incremental restyle: DOM mutation versions and dirty-node tracking drive cached
   subtree restyles; `:has()` stylesheets fall back to a full restyle.
 - Layout: box-tree construction, anonymous block boxes, `display:contents`,
-  multi-keyword `display` (`block flex`, `block flow-root`), box model/sizing
+  multi-keyword `display` (`block flex`, `block flow-root`), generated
+  `::before`/`::after` content boxes with logical inline ordering and box-model
+  margins/padding/borders, box model/sizing
   (min/max width and height, percentages, `aspect-ratio`, `fit-content()`,
   `calc()` against containing blocks, intrinsic min-/max-content, horizontal
   auto margins), fixed/absolute flex formatting, block layout with positive,
@@ -375,11 +377,15 @@ These are intentional, tracked gaps rather than surprises:
   cross-process iframe isolation, and the full HTML session-history API are out
   of scope until Phase 10. The privacy dashboard reports the broker's current
   cookie/cache/graph state; it is not a general network inspector.
-- **Generated content is not laid out yet.** `::before`/`::after` selectors parse
-  and validate, but pseudo-element boxes are not generated, so icon-font buttons
-  and similar generated content can differ from other browsers. Combined with the
-  absence of scripting, this is the main remaining visual difference on real
-  sites such as `cookie.engineer`.
+- **Generated content is partially implemented.** `::before`/`::after` selectors
+  are matched against their originating element and generate styled boxes with
+  string content, `attr()` values, and open/close quotes, including empty-content
+  boxes used for icons and clearing. Inline generated boxes are treated as
+  atomic inline fragments so margins, padding, borders, backgrounds, and widths
+  affect positioning like they do for inline-block content. CSS counters, `content: url()`, nested quote
+  tracking, and non-`before`/`after` pseudo-element boxes are not implemented.
+  Combined with the absence of scripting, this can still cause differences on
+  real sites such as `cookie.engineer`.
 - **P2-TLS-002 (ECH/GREASE)** — GREASE values and the ECH config field are present, but
   `crypto/tls` cannot inject GREASE or permute the ClientHello. That needs the planned
   `protocols/tls/chrome` fork.

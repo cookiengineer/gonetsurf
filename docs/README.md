@@ -45,7 +45,8 @@ and the `cmd/netsurf` interactive shell. External stylesheets and nested
 resolved relative to their stylesheet. Real-site parity work also covers
 multi-keyword `display`, `calc()` sizing, auto-margin centering, fixed/absolute
 flex containers, clipped-overflow containment, nested scroll-container
-hit-testing, and resize-driven media/layout updates. Scroll rendering uses
+hit-testing, generated `::before`/`::after` content, and resize-driven
+media/layout updates. Scroll rendering uses
 cached chrome, fonts, colors, glyph fallback, and offscreen-text culling.
 Phase 9 is complete: IPC framing/shared memory, process supervision, sandbox
 primitives, the network broker (cache/cookies + INET seccomp guard), and the

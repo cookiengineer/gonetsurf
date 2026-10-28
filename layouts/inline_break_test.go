@@ -158,3 +158,97 @@ func TestAbsoluteBoxStretchesBetweenTopAndBottom(t *testing.T) {
 		t.Errorf("aside box = %#v", asideBox)
 	}
 }
+
+func TestGeneratedBeforeAfterBoxes(t *testing.T) {
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	paragraph.SetAttribute("data-tail", "Z")
+	paragraph.AppendChild(document.CreateTextNode("middle"))
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block }
+		p::before { content: "A" }
+		p::after { content: attr(data-tail) }
+	`)
+	root := BuildDocument(document, engine)
+	paragraphBox := FindBox(root, paragraph)
+	if paragraphBox == nil {
+		t.Fatal("paragraph box missing")
+	}
+	if len(paragraphBox.Children) != 3 {
+		t.Fatalf("children = %d, want 3", len(paragraphBox.Children))
+	}
+	before := paragraphBox.Children[0]
+	after := paragraphBox.Children[2]
+	if before.Pseudo != "before" || len(before.Children) != 1 || before.Children[0].Text != "A" {
+		t.Errorf("before box = %#v", before)
+	}
+	if after.Pseudo != "after" || len(after.Children) != 1 || after.Children[0].Text != "Z" {
+		t.Errorf("after box = %#v", after)
+	}
+}
+
+func TestGeneratedBeforeStaysBeforeLinkText(t *testing.T) {
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	link := document.CreateElement("a")
+	link.SetAttribute("href", "/projects")
+	link.AppendChild(document.CreateTextNode("Read More"))
+	paragraph.AppendChild(link)
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; width:300px }
+		a::before { content: "X"; display:inline-block; margin:0 4px 0 0 }
+	`)
+	root := BuildDocument(document, engine)
+	New(400, 200).Layout(root)
+	paragraphBox := FindBox(root, paragraph)
+	if paragraphBox == nil || len(paragraphBox.Children) < 3 {
+		t.Fatalf("paragraph children = %#v", paragraphBox)
+	}
+	if paragraphBox.Children[0].Pseudo != "before" {
+		t.Fatalf("first child is not generated content: %#v", paragraphBox.Children[0])
+	}
+	if paragraphBox.Children[1].Text != "Read" {
+		t.Errorf("first text = %q, want Read", paragraphBox.Children[1].Text)
+	}
+	generated := paragraphBox.Children[0]
+	text := paragraphBox.Children[1]
+	if gap := text.X - (generated.X + generated.Width); gap != 4 {
+		t.Errorf("generated margin gap = %v, want 4", gap)
+	}
+}
+
+func TestInlineGeneratedContentHonorsBoxModel(t *testing.T) {
+	document, body := testDocument()
+	paragraph := document.CreateElement("p")
+	link := document.CreateElement("a")
+	link.SetAttribute("href", "/projects")
+	link.AppendChild(document.CreateTextNode("Read More"))
+	paragraph.AppendChild(link)
+	body.AppendChild(paragraph)
+	engine := testEngine(document, `
+		html, body { margin:0; padding:0 }
+		p { display:block; width:300px }
+		a::before { content: "X"; margin-right:6px; padding:2px 3px; border:1px solid red }
+	`)
+	root := BuildDocument(document, engine)
+	New(400, 200).Layout(root)
+	paragraphBox := FindBox(root, paragraph)
+	if paragraphBox == nil || len(paragraphBox.Children) < 2 {
+		t.Fatalf("paragraph children = %#v", paragraphBox)
+	}
+	generated := paragraphBox.Children[0]
+	text := paragraphBox.Children[1]
+	if generated.Pseudo != "before" {
+		t.Fatalf("generated box missing: %#v", generated)
+	}
+	if gap := text.X - (generated.X + generated.Width); gap != 6 {
+		t.Errorf("generated margin gap = %v, want 6", gap)
+	}
+	if generated.Width <= generated.ContentWidth {
+		t.Errorf("padding/border not included in width: width=%v content=%v", generated.Width, generated.ContentWidth)
+	}
+}

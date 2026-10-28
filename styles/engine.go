@@ -66,6 +66,8 @@ type Engine struct {
 	cache        map[*dom.Node]*Style
 	cacheVersion uint64
 	hasHas       bool
+	hasBefore    bool
+	hasAfter     bool
 }
 
 // NewEngine creates a style engine for a document. The returned matcher is
@@ -92,6 +94,8 @@ func (engine *Engine) AddStylesheet(stylesheet *cssom.Stylesheet) {
 	}
 	engine.stylesheets = append(engine.stylesheets, stylesheet)
 	engine.hasHas = engine.hasHas || stylesheetUsesHas(stylesheet)
+	engine.hasBefore = engine.hasBefore || stylesheetUsesPseudo(stylesheet, "before")
+	engine.hasAfter = engine.hasAfter || stylesheetUsesPseudo(stylesheet, "after")
 	engine.cache = nil
 	engine.cacheVersion = 0
 }
@@ -108,6 +112,25 @@ func (engine *Engine) Rebuild() {
 	engine.matcher.Rebuild()
 	engine.cache = nil
 	engine.cacheVersion = 0
+}
+
+// HasPseudoElement reports whether any registered stylesheet generates the
+// named pseudo-element.
+func (engine *Engine) HasPseudoElement(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "before":
+		return engine.hasBefore
+	case "after":
+		return engine.hasAfter
+	default:
+		return false
+	}
+}
+
+// HasGeneratedContent reports whether any registered stylesheet generates
+// ::before or ::after content.
+func (engine *Engine) HasGeneratedContent() bool {
+	return engine.hasBefore || engine.hasAfter
 }
 
 // Compute computes the style for one element. Parent may be nil for a root.
@@ -146,6 +169,34 @@ func (engine *Engine) Compute(element *dom.Node, parent *Style) *Style {
 			}
 		}
 	}
+	return engine.computeDeclarations(element, parent, declarations)
+}
+
+// ComputePseudo computes the style of the named pseudo-element attached to
+// element. parent is the computed style of the originating element, not its
+// DOM parent.
+func (engine *Engine) ComputePseudo(element *dom.Node, parent *Style, pseudo string) *Style {
+	if element == nil || element.Type != dom.ElementNode {
+		return nil
+	}
+	pseudo = strings.ToLower(strings.TrimSpace(pseudo))
+	if pseudo != "before" && pseudo != "after" {
+		return nil
+	}
+	declarations := []cascade.Declaration{}
+	order := 0
+	for _, rule := range UserAgentStylesheet().CSSRules() {
+		engine.collectPseudoRule(rule, cascade.OriginUserAgent, "", element, pseudo, &declarations, &order)
+	}
+	for _, stylesheet := range engine.stylesheets {
+		for _, rule := range stylesheet.CSSRules() {
+			engine.collectPseudoRule(rule, cascade.OriginAuthor, "", element, pseudo, &declarations, &order)
+		}
+	}
+	return engine.computeDeclarations(element, parent, declarations)
+}
+
+func (engine *Engine) computeDeclarations(element *dom.Node, parent *Style, declarations []cascade.Declaration) *Style {
 	var parentValues cascade.InheritedValues
 	if parent != nil {
 		parentValues = cascade.InheritedValues(parent.values)
@@ -340,6 +391,80 @@ func (engine *Engine) collectRule(rule cssom.Rule, origin cascade.Origin, parent
 	}
 }
 
+func (engine *Engine) collectPseudoRule(rule cssom.Rule, origin cascade.Origin, parentSelector string, element *dom.Node, pseudo string, declarations *[]cascade.Declaration, order *int) {
+	switch typed := rule.(type) {
+	case *cssom.StyleRule:
+		selectorText := typed.SelectorText()
+		if parentSelector != "" {
+			selectorText = nesting.ResolveSelector(selectorText, parentSelector)
+		}
+		if list, err := selectors.Parse(selectorText); err == nil {
+			if specificity, matched := pseudoSelectorMatch(list, pseudo, element); matched {
+				for _, declaration := range typed.Declarations {
+					for _, expanded := range expandDeclaration(declaration) {
+						*declarations = append(*declarations, cascade.Declaration{
+							Property:    expanded.Name,
+							Value:       expanded.Value,
+							Important:   expanded.Important,
+							Origin:      origin,
+							Specificity: specificity,
+							Order:       *order,
+						})
+						*order++
+					}
+				}
+			}
+		}
+		for _, nested := range typed.CSSRules() {
+			engine.collectPseudoRule(nested, origin, selectorText, element, pseudo, declarations, order)
+		}
+	case *cssom.AtRule:
+		if !engine.atRuleApplies(typed) {
+			return
+		}
+		for _, nested := range typed.CSSRules() {
+			engine.collectPseudoRule(nested, origin, parentSelector, element, pseudo, declarations, order)
+		}
+	}
+}
+
+func pseudoSelectorMatch(list *selectors.SelectorList, pseudo string, element *dom.Node) (selectors.Specificity, bool) {
+	if list == nil || element == nil {
+		return selectors.Specificity{}, false
+	}
+	filtered := &selectors.SelectorList{}
+	matchedSpecificity := selectors.Specificity{}
+	matched := false
+	for _, complexSelector := range list.Selectors {
+		if len(complexSelector.Compounds) == 0 {
+			continue
+		}
+		lastCompound := complexSelector.Compounds[len(complexSelector.Compounds)-1]
+		if len(lastCompound.Parts) == 0 {
+			continue
+		}
+		pseudoElement, ok := lastCompound.Parts[len(lastCompound.Parts)-1].(*selectors.PseudoElement)
+		if !ok || !strings.EqualFold(pseudoElement.Name, pseudo) {
+			continue
+		}
+		clone := complexSelector
+		clone.Compounds = append([]selectors.CompoundSelector(nil), complexSelector.Compounds...)
+		cloneLast := clone.Compounds[len(clone.Compounds)-1]
+		cloneLast.Parts = append([]selectors.SimpleSelector(nil), cloneLast.Parts[:len(cloneLast.Parts)-1]...)
+		clone.Compounds[len(clone.Compounds)-1] = cloneLast
+		filtered.Selectors = append(filtered.Selectors, clone)
+		specificity := complexSelector.Specificity()
+		if !matched || specificity.Compare(matchedSpecificity) > 0 {
+			matchedSpecificity = specificity
+			matched = true
+		}
+	}
+	if !matched || !element.MatchesSelectorList(filtered) {
+		return selectors.Specificity{}, false
+	}
+	return matchedSpecificity, true
+}
+
 func (engine *Engine) atRuleApplies(rule *cssom.AtRule) bool {
 	switch strings.ToLower(rule.Name) {
 	case "media":
@@ -367,6 +492,46 @@ func (supportChecker) SupportsDeclaration(property, value string) bool {
 func (supportChecker) SupportsSelector(selector string) bool {
 	_, err := selectors.Parse(selector)
 	return err == nil
+}
+
+func stylesheetUsesPseudo(stylesheet *cssom.Stylesheet, pseudo string) bool {
+	if stylesheet == nil {
+		return false
+	}
+	return rulesUsePseudo(stylesheet.CSSRules(), pseudo)
+}
+
+func rulesUsePseudo(rules []cssom.Rule, pseudo string) bool {
+	for _, rule := range rules {
+		switch typed := rule.(type) {
+		case *cssom.StyleRule:
+			if typed.Selectors == nil {
+				continue
+			}
+			for _, complexSelector := range typed.Selectors.Selectors {
+				if len(complexSelector.Compounds) == 0 {
+					continue
+				}
+				lastCompound := complexSelector.Compounds[len(complexSelector.Compounds)-1]
+				if len(lastCompound.Parts) == 0 {
+					continue
+				}
+				if pseudoElement, ok := lastCompound.Parts[len(lastCompound.Parts)-1].(*selectors.PseudoElement); ok {
+					if strings.EqualFold(pseudoElement.Name, pseudo) {
+						return true
+					}
+				}
+			}
+			if rulesUsePseudo(typed.Nested, pseudo) {
+				return true
+			}
+		case *cssom.AtRule:
+			if rulesUsePseudo(typed.Rules, pseudo) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func stylesheetUsesHas(stylesheet *cssom.Stylesheet) bool {

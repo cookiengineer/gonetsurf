@@ -604,9 +604,12 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   fixed/absolute containers, clipped-overflow scroll containment, nested
   scroll-container hit-testing, single-offset nested-scroll painting,
   inline-block baseline handling, and media re-evaluation on viewport resize.
-  Verified against headless Chromium on `https://cookie.engineer/index.html`;
-  the remaining visual differences are generated content/pseudo-elements and
-  scripting.
+  Generated content now supports styled `::before`/`::after` boxes with string,
+  empty-string, and `attr()` content; atomic pseudo runs retain logical inline
+  order and honor margins/padding/borders, including default inline pseudo
+  elements. Verified against headless Chromium on
+  `https://cookie.engineer/index.html`; remaining differences include counters,
+  `content: url()`, other pseudo-elements, and scripting.
 
 ## Phase 0 — Foundations
 

@@ -25,7 +25,8 @@ Known gaps:
 
 - JavaScript and Web APIs are not implemented.
 - Wayland is not implemented; the native backend is X11.
-- `::before`/`::after` generated content is parsed but not yet laid out.
+- `::before`/`::after` generated content supports strings and `attr()`; counters,
+  `content: url()`, and other pseudo-elements are not implemented.
 - WOFF2 requires a Brotli decoder and is currently rejected.
 - Full OpenType GSUB/GPOS shaping is deferred to `P10-TEXT-001`.
 - The WPT reftest corpus is not vendored; local goldens and the reftest harness are used.
@@ -48,8 +49,9 @@ See [`docs/handover.md`](docs/handover.md) for the detailed snapshot and
   CSSOM, cascade/layers/custom properties, conditions, media queries, animations,
   nesting, and a generated property registry.
 - **Style and layout:** indexed selector matching, UA stylesheet, computed values,
-  incremental restyle, block/inline/table/flex/grid formatting, floats, positioning,
-  writing modes, bidi, text shaping, overflow, and incremental layout.
+  incremental restyle, generated `::before`/`::after` boxes, block/inline/table/
+  flex/grid formatting, floats, positioning, writing modes, bidi, text shaping,
+  overflow, and incremental layout.
 - **Rendering:** anti-aliased rasterizer, borders/backgrounds/radii/shadows/gradients,
   PNG/JPEG/GIF/WebP images, SVG subset, fonts and `@font-face`, Color 4 conversion,
   stacking/opacity/2D+3D transforms, compositor damage tracking, and PNG output.

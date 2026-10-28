@@ -37,8 +37,9 @@ work.
 > `cmd/netsurf` shell. Real-site rendering work also added linked/imported
 > stylesheet loading with stylesheet-relative URL resolution, multi-keyword
 > `display`, `calc()` and auto-margin box sizing, clipped-overflow containment,
-> nested scroll-container hit-testing and painting, inline-block baselines,
-> resize-driven media/layout updates, and cached scroll rendering. Phase 9 IPC
+> nested scroll-container hit-testing and painting, generated
+> `::before`/`::after` content boxes, inline-block baselines, resize-driven
+> media/layout updates, and cached scroll rendering. Phase 9 IPC
 > framing/shared memory, process
 > supervision, sandbox primitives, the network broker (cache/cookies + INET
 > seccomp guard), and the persistent storage broker are Verified. Phase 9 is
