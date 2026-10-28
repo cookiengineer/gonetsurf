@@ -10,8 +10,14 @@ import (
 
 // Options configures a render pass.
 type Options struct {
-	Images   ImageProvider
-	LoadFont fonts.Loader
+	Images    ImageProvider
+	LoadFont  fonts.Loader
+	Subframes SubframeProvider
+}
+
+// SubframeProvider supplies rendered documents for nested browsing contexts.
+type SubframeProvider interface {
+	RenderSubframe(node *dom.Node, width, height int) *Surface
 }
 
 // RenderDocument resolves styles, lays out document, and paints it into a new
@@ -34,18 +40,7 @@ func RenderDocumentWithOptions(document *dom.Document, engine *styles.Engine, wi
 	if options.Images == nil {
 		options.Images = DataURLImageProvider{}
 	}
-	library := fonts.Default()
-	fontFaces := engine.FontFaces()
-	if len(fontFaces) > 0 {
-		library = library.Clone()
-		partition := ""
-		if document.URL != nil {
-			partition = document.URL.Site()
-		}
-		library.AddFontFaceRules(fontFaces, fonts.AuthorOptions{Base: document.URL, Partition: partition, Loader: options.LoadFont})
-	}
-	root := layouts.BuildDocument(document, engine)
-	return renderBoxWithOptions(root, width, height, options.Images, document.URL, library)
+	return NewPage(document, engine, width, height, options).Render()
 }
 
 // RenderBox lays out an existing box tree and paints it into a new surface.

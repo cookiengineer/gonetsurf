@@ -48,8 +48,8 @@ func (painter *Painter) paintStackingContextWithEffects(box *layouts.Box, surfac
 	xPos, yPos, deltaX, deltaY := paintOrigin(box, offsetX, offsetY)
 	painter.paintDecorations(box, surface, xPos, yPos)
 
-	childOffsetX := offsetX - box.ScrollLeft + deltaX
-	childOffsetY := offsetY - box.ScrollTop + deltaY
+	childOffsetX := offsetX + deltaX
+	childOffsetY := offsetY + deltaY
 
 	clip := surface.Clip()
 	hasClip := true
@@ -59,7 +59,7 @@ func (painter *Painter) paintStackingContextWithEffects(box *layouts.Box, surfac
 
 	var entries []stackingEntry
 	counter := 0
-	collectStackingEntries(box, childOffsetX, childOffsetY, clip, hasClip, &entries, &counter)
+	collectStackingEntries(box, childOffsetX-box.ScrollLeft, childOffsetY-box.ScrollTop, clip, hasClip, &entries, &counter)
 	sort.SliceStable(entries, func(first, second int) bool {
 		if entries[first].zIndex == entries[second].zIndex {
 			return entries[first].order < entries[second].order
@@ -100,11 +100,14 @@ func (painter *Painter) paintPseudoContext(box *layouts.Box, surface *Surface, o
 	}
 	xPos, yPos, deltaX, deltaY := paintOrigin(box, offsetX, offsetY)
 	painter.paintDecorations(box, surface, xPos, yPos)
-	painter.paintContent(box, surface, offsetX-box.ScrollLeft+deltaX, offsetY-box.ScrollTop+deltaY)
+	painter.paintContent(box, surface, offsetX+deltaX, offsetY+deltaY)
 	painter.paintScrollbars(box, surface, xPos, yPos)
 }
 
 func (painter *Painter) paintContent(box *layouts.Box, surface *Surface, offsetX, offsetY float64) {
+	if box != nil && box.Node != nil && painter.framePainted[box.Node] {
+		return
+	}
 	previousClip := surface.Clip()
 	clipChanged := false
 	if box.ClipX || box.ClipY {

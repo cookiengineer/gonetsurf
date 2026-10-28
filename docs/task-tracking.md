@@ -14,19 +14,21 @@ This is the single source of truth for the status of every task in
 A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs=-`.
 `Spec=N/A` is allowed only for non-normative tooling.
 
-> **Current state (2026-10-28):** Phases 0–6 and 9 are complete and verified.
-> Phase 7 has 12 Verified tasks and one Partial (P7-FONT-004: OpenType
-> feature/variation shaping depends on P10-TEXT-001). Phase 8 has 5 Verified
-> tasks and one Partial (P8-SHELL-002: full HTML browsing-context edges). The
-> engine now includes the full URL/encoding/HTML/DOM stack, CSS parsing and
-> cascade, style resolution, block/inline/table/flex/grid layout with sticky and
-> scrollbar paint integration, the rendering pipeline (rasterization,
-> backgrounds/borders, images, Color 4 + gamut mapping, gradients, fonts and
-> `@font-face`, SVG, stacking, 2D/3D transforms, replaced content, compositor,
-> pixel/reftest harnesses), X11 input/clipboard/MIT-SHM, the interactive
-> `cmd/netsurf` shell, and IPC/shared-memory/supervised brokers with a sandboxed
-> shell. Totals: **96 Verified, 3 Implemented/Partial, 18 Planned, 0 Blocked**.
-> For a narrative summary see [`handover.md`](./handover.md).
+> **Current state (2026-10-28):** Phases 0–6, 8, and 9 are complete and
+> verified. Phase 7 has 12 Verified tasks and one Partial (P7-FONT-004: OpenType
+> feature/variation shaping depends on P10-TEXT-001). Phase 8 has all 6 tasks
+> Verified, including browsing-context navigation, inline iframes, scrolling,
+> omnibox search/autocomplete, tab reordering, and the broker-backed privacy
+> dashboard. The engine now includes the full URL/encoding/HTML/DOM stack, CSS
+> parsing and cascade, style resolution, block/inline/table/flex/grid layout
+> with sticky and scrollbar paint integration, the rendering pipeline
+> (rasterization, backgrounds/borders, images, Color 4 + gamut mapping,
+> gradients, fonts and `@font-face`, SVG, stacking, 2D/3D transforms, replaced
+> content, compositor, pixel/reftest harnesses), X11 input/clipboard/MIT-SHM,
+> the interactive `cmd/netsurf` shell, and IPC/shared-memory/supervised brokers
+> with a sandboxed shell. Totals: **97 Verified, 2 Implemented/Partial,
+> 18 Planned, 0 Blocked**. For a narrative summary see
+> [`handover.md`](./handover.md).
 
 ## Summary
 
@@ -40,11 +42,11 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
 | 6 Layout | 14 | 14 | 0 | 0 | 0 |
 | 7 Paint/Fonts/Images/Color | 13 | 12 | 1 | 0 | 0 |
-| 8 Window/UI | 6 | 5 | 1 | 0 | 0 |
+| 8 Window/UI | 6 | 6 | 0 | 0 | 0 |
 | 9 Process/Sandbox | 6 | 6 | 0 | 0 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **117** | **96** | **3** | **18** | **0** |
+| **Total** | **117** | **97** | **2** | **18** | **0** |
 
 ## Progress log
 
@@ -580,6 +582,32 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   P7-FONT-003 is `Verified`; WOFF2 remains explicitly out of scope until a
   Brotli decoder is added.
 
+- **2026-10-28 (P8-SHELL-002 close-out):** Added opener/child browsing
+  contexts, frame history and session state, same-document fragment navigation,
+  scroll restoration, link hit-testing, inline iframe loading/rendering with
+  sandbox navigation checks, page scrolling, omnibox history autocomplete and
+  DuckDuckGo search fallback, tab drag/reorder, and a broker-backed privacy
+  dashboard with tracking-session reset. Added browser-model, layout
+  hit-testing, `rendering.Page`, iframe paint, shell interaction, and broker
+  privacy tests. P8-SHELL-002 is `Verified`; Phase 8 is 6/6 Verified.
+
+- **2026-10-28 (real-site rendering parity and scroll performance):** Added a
+  shared `adapters.StylesheetLoader` for `<link rel=stylesheet>`, nested
+  `@import`, and per-stylesheet resource-URL resolution; wired it through the
+  shell, `netsurfctl layout/render/show`, and reftests. Fixed `background`
+  shorthands that use `var()`, `calc()` sizing against containing blocks,
+  horizontal auto-margin centering, and forced-break lines being incorrectly
+  justified. Reduced scroll-frame cost by caching chrome surfaces, font-family
+  lookups, text colors and per-rune fallback, fast-pathing `Copy` blits, and
+  skipping offscreen text before shaping. Follow-up real-site fixes added
+  multi-keyword `display` (`block flex`/`block flow-root`), flex alignment for
+  fixed/absolute containers, clipped-overflow scroll containment, nested
+  scroll-container hit-testing, single-offset nested-scroll painting,
+  inline-block baseline handling, and media re-evaluation on viewport resize.
+  Verified against headless Chromium on `https://cookie.engineer/index.html`;
+  the remaining visual differences are generated content/pseudo-elements and
+  scripting.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -715,7 +743,7 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | P8-X11-002 | X11 input and clipboard | Verified | Y | Y | N/A | - |
 | P8-X11-003 | MIT-SHM surface upload | Verified | Y | Y | N/A | - |
 | P8-SHELL-001 | Browser chrome | Verified | Y | Y | N/A | - |
-| P8-SHELL-002 | Tab/session/navigation model | Implemented | Y | Y | Partial | - |
+| P8-SHELL-002 | Tab/session/navigation model | Verified | Y | Y | Compliant | - |
 | P8-SHELL-003 | Event loop and input routing | Verified | Y | Y | N/A | - |
 
 ## Phase 9 — Process Architecture and Sandboxing

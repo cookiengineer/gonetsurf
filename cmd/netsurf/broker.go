@@ -165,7 +165,7 @@ func runBroker() error {
 	networkServer := &network.Server{
 		Conn:    ipc.NewConn(networkConnection),
 		Token:   token,
-		Fetcher: network.HTTPFetcher{Jar: jar, Cache: network.NewCache()},
+		Fetcher: network.HTTPFetcher{Jar: jar, Cache: network.NewCache(), Session: cookies.NewSessionManager(jar)},
 	}
 	storageServer := &storage.Server{
 		Conn:  ipc.NewConn(storageConnection),

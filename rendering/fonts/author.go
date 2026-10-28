@@ -115,6 +115,7 @@ func (library *Library) AddFontFaceRules(rules []*cssom.FontFaceRule, options Au
 	library.mutex.Lock()
 	library.faces = make(map[faceKey]font.Face)
 	library.mutex.Unlock()
+	library.invalidateFamilyCache()
 }
 
 func resolveFontURL(base *urls.URL, address string) string {

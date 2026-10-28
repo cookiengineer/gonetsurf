@@ -5,10 +5,11 @@
 > [`handover.md`](./handover.md). As of 2026-10-28 the implemented packages include the
 > URL, encoding, HTML-parsing/`dom`, HTTP/TLS/DNS, cache, cookie, Phase 4 CSS
 > parser/CSSOM layers, the Phase 5 `styles` engine, the Phase 6 `layouts` engine,
-> the Phase 7 `rendering` pipeline (paint, fonts, images, color, compositor), and the
+> the Phase 7 `rendering` pipeline (paint, fonts, images, color, compositor), the
 > Phase 8 `windowing`, `browsers`, and `shells` packages with the X11 backend,
-> and the Phase 9 `ipc`, `runtime`, `runtime/sandbox`, and `brokers` packages.
-> Web APIs and JavaScript remain design targets.
+> the Phase 9 `ipc`, `runtime`, `runtime/sandbox`, and `brokers` packages, and the
+> `adapters` stylesheet-loading bridge. Web APIs and JavaScript remain design
+> targets.
 
 ## 1. Scope
 

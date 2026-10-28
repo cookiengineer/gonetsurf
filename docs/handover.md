@@ -29,27 +29,29 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
 | 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (14/14 Verified) |
 | 7 | Paint/fonts/images/color | **Mostly done** (12 Verified, 1 Partial: OpenType feature/variation shaping) |
-| 8 | X11 window/UI shell | **Done** (5 Verified, 1 Partial for full browsing-context edges) |
+| 8 | X11 window/UI shell | **Done** (6/6 Verified) |
 | 9 | Process sandbox/brokers | **Done** (6/6 Verified) |
 | 10 | JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **96 Verified, 3 Implemented/Partial, 18 Planned, 0 Blocked**. There are no open
+Totals: **97 Verified, 2 Implemented/Partial, 18 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is now an interactive browser executable: `go run ./cmd/netsurf [url]` opens an
 X11 window with a rasterized tab strip, omnibox, status/privacy bars, keyboard/mouse
 routing, clipboard support, and real page rendering. Phases 0–7 provide the engine,
-Phase 8 adds the X11 input/clipboard/MIT-SHM shell and tab/session model, and Phase 9
-puts network/cookie/cache/storage access behind a separate broker and sandboxes the
-shell with a read-only Landlock view and INET-socket seccomp guard.
+Phase 8 adds the X11 input/clipboard/MIT-SHM shell, full tab/navigation/browsing-context
+model, page scrolling, omnibox search/autocomplete, inline iframes, tab reordering, and
+the privacy dashboard, and Phase 9 puts network/cookie/cache/storage access behind a
+separate broker and sandboxes the shell with a read-only Landlock view and INET-socket
+seccomp guard.
 
 ## 3. Quick start
 
 ```sh
 go build ./...                          # compile everything
 go vet ./...                            # static checks
-gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts rendering windowing browsers ipc runtime brokers shells   # formatting
+gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts rendering windowing browsers ipc runtime brokers shells adapters   # formatting
 go test ./... -count=1                  # unit + integration tests
 go run ./cmd/netsurfctl deps-check      # enforce the no-third-party policy
 go run ./cmd/netsurfctl urlparse 'https://www.example.com:8443/a/b?x=1#f'
@@ -64,7 +66,7 @@ go test ./urls/ -run='^$' -fuzz='^FuzzParse$' -fuzztime=30s
 
 Current verification baseline:
 
-- 303 Go files across 53 packages, 122 test files, 539 test/fuzz/benchmark functions.
+- 315 Go files across 54 packages, 129 test files, 573 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -110,9 +112,11 @@ Current verification baseline:
   widths, and generic length/angle/time conversion are tested.
 - Incremental restyle: DOM mutation versions and dirty-node tracking drive cached
   subtree restyles; `:has()` stylesheets fall back to a full restyle.
-- Layout: box-tree construction, anonymous block boxes, `display:contents`, box
-  model/sizing (min/max width and height, percentages, aspect-ratio,
-  `fit-content()`, intrinsic min-/max-content), block layout with positive,
+- Layout: box-tree construction, anonymous block boxes, `display:contents`,
+  multi-keyword `display` (`block flex`, `block flow-root`), box model/sizing
+  (min/max width and height, percentages, `aspect-ratio`, `fit-content()`,
+  `calc()` against containing blocks, intrinsic min-/max-content, horizontal
+  auto margins), fixed/absolute flex formatting, block layout with positive,
   negative, collapsed-through, sibling, and parent/child margin collapsing,
   line-based inline formatting (wrapping, `text-align`, `vertical-align`,
   `white-space`, inline-blocks), and line-level bidi ordering are tested.
@@ -135,7 +139,9 @@ Current verification baseline:
   geometry dump.
 - Rendering: the `rendering` package has premultiplied RGBA8 surfaces, anti-aliased
   nonzero/even-odd path filling, rounded rectangles, stroking with caps and
-  joins, clipping, Porter-Duff compositing, and CSS color parsing. The painter
+  joins, clipping, Porter-Duff compositing, and CSS color parsing. Linked
+  stylesheets and nested `@import` rules are loaded through `adapters`, and
+  relative resource URLs in author CSS are absolutized before parsing. The painter
   draws multi-layer backgrounds (color and data-URL images with repeat,
   position, size, origin, and clip), all CSS border styles with radii,
   per-side colors, outer/inset box shadows with blur, and bilinear image
@@ -201,12 +207,27 @@ Current verification baseline:
   events with keyboard mapping, ICCCM clipboard, MIT-SHM uploads with damage
   bands, and PutImage fallback). `netsurfctl show` opens a page in an X11 window;
   integration tests run when `DISPLAY` is set.
-- Shell: `browsers` provides tabs, navigation/history, and session restore;
-  `shells` renders the tab strip/omnibox/status/privacy chrome with the
-  rasterizer and routes input in a 60 Hz dirty-frame loop. `cmd/netsurf` is the
-  interactive executable. Tests cover model navigation, shell rendering,
-  keyboard/mouse routing, headless Run/close, X11 input, clipboard across two
-  clients, SHM visual uploads, and damage presentation.
+- Shell: `browsers` provides tabs, opener/child browsing contexts, frame
+  history, same-document navigation, scroll restoration, tab reordering, and
+  session restore; `shells` renders the tab strip/omnibox/status/privacy chrome
+  with the rasterizer and routes input in a 60 Hz dirty-frame loop. The shell
+  scrolls pages and nested scroll containers under the pointer, follows
+  links/fragments, loads and paints inline iframes with sandbox navigation
+  checks, completes URLs from history, falls back to DuckDuckGo search, and
+  exposes a broker-backed privacy dashboard with tracking-session reset. Chrome
+  surfaces, font-family lookups, text colors, per-rune font fallback, and scroll
+  blits are cached; offscreen text is skipped before shaping and clipped
+  overflow no longer expands the document scroll range, keeping fixed chrome in
+  place. Nested scroll containers apply their scroll offset exactly once while
+  painting, so scrolled-aside and scrolled-main content stays visible with its
+  backgrounds and geometry. Window resize re-runs media queries, style, layout,
+  and paint. A
+  representative long-page scroll frame stays under the 60 Hz budget.
+  `cmd/netsurf` is the interactive executable. Tests
+  cover model navigation, shell rendering, keyboard/mouse routing, scrolling,
+  link/fragment/iframe navigation, autocomplete, tab reordering, privacy
+  actions, headless Run/close, X11 input, clipboard across two clients, SHM
+  visual uploads, and damage presentation.
 - Matching benchmarks: `dom` selector matching and `styles.Matcher.Elements` are
   benchmarked; the DOM matcher also has a fuzz target.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
@@ -252,6 +273,7 @@ Current verification baseline:
 | `rendering/` | Surfaces, path rasterization, stroking, clipping, Porter-Duff compositing, paint traversal, color conversion, and headless render. |
 | `rendering/images/` | PNG/JPEG/GIF/WebP decoding, GIF animation metadata, EXIF orientation, and pixel/frame budgets. |
 | `rendering/fonts/` | Embedded/system font matching, text shaping, metrics, per-rune fallback, and a glyph mask cache. |
+| `adapters/` | Bridges between subsystems; currently linked/imported stylesheet loading and CSS resource-URL resolution. |
 | `windowing/` | Display/window abstraction, input/clipboard events, headless backend, and the pure-Go X11 presenter with MIT-SHM. |
 | `browsers/` | Tab, navigation/history, and session model. |
 | `shells/` | Rasterized browser chrome, input routing, and the dirty-frame event loop. |
@@ -348,6 +370,16 @@ These are intentional, tracked gaps rather than surprises:
 - **The X11 backend is complete for X11 but not Wayland.** It handles input,
   clipboard, MIT-SHM, resize, and WM_DELETE; a Wayland backend is Phase 10. The
   integration tests are skipped when `DISPLAY` is unset.
+- **Phase 8 browsing contexts are static and single-process.** Inline iframes
+  load, render, and honor sandbox navigation flags, but scripts, `window.open`,
+  cross-process iframe isolation, and the full HTML session-history API are out
+  of scope until Phase 10. The privacy dashboard reports the broker's current
+  cookie/cache/graph state; it is not a general network inspector.
+- **Generated content is not laid out yet.** `::before`/`::after` selectors parse
+  and validate, but pseudo-element boxes are not generated, so icon-font buttons
+  and similar generated content can differ from other browsers. Combined with the
+  absence of scripting, this is the main remaining visual difference on real
+  sites such as `cookie.engineer`.
 - **P2-TLS-002 (ECH/GREASE)** — GREASE values and the ECH config field are present, but
   `crypto/tls` cannot inject GREASE or permute the ClientHello. That needs the planned
   `protocols/tls/chrome` fork.
@@ -394,26 +426,23 @@ Recorded in the relevant design docs under "Decisions":
 
 ## 8. Recommended next steps
 
-1. **Finish Phase 8 polish.** Implement the full browsing-context model
-   (opener/iframe/same-document navigation), page scrolling, URL
-   autocomplete/search, tab drag/reorder, and a richer privacy dashboard.
-2. **Resolve the remaining Phase 7 partial dependency.** Add the OpenType
+1. **Resolve the remaining Phase 7 partial dependency.** Add the OpenType
    GSUB/GPOS shaper (P10-TEXT-001) for `font-feature-settings`,
    `font-variation-settings`, and variable-axis selection (P7-FONT-004).
-3. **Vendor and run WPT reftests.** `netsurfctl reftest` is ready; add the WPT
+2. **Vendor and run WPT reftests.** `netsurfctl reftest` is ready; add the WPT
    reftest subset and CI thresholds, then close the remaining non-blocking
    gaps (`background-blend-mode`, SVG text/use/clipPath/mask/pattern/filter,
    animated image playback).
-4. **Start Phase 10.** Implement the pluggable/activatable JavaScript engine
+3. **Start Phase 10.** Implement the pluggable/activatable JavaScript engine
    interface (sobek vendoring is a dependency decision), event/task scheduling,
    farbled Web API bindings, CSS animation runtime, paged media, Wayland, HTTP/2,
    and OpenType shaping. The renderer can also be split into its own supervised
    process using the completed IPC/shared-memory/broker stack.
-5. **Deepen CSS feature coverage** as later phases need it: full CSSOM IDL
+4. **Deepen CSS feature coverage** as later phases need it: full CSSOM IDL
    surface, media query serialization, and cascade edge cases.
-6. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
+5. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
    `protocols/tls/chrome` fork lands.
-7. **Fill the skeleton.** Create remaining package directories as their phases
+6. **Fill the skeleton.** Create remaining package directories as their phases
    begin; avoid broad empty scaffolding ahead of need.
 
 ## 9. Handover checklist

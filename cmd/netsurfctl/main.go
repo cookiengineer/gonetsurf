@@ -16,10 +16,10 @@ import (
 	"strconv"
 	"strings"
 
+	"gonetsurf/adapters"
 	"gonetsurf/dom"
 	"gonetsurf/internal/reftest"
 	"gonetsurf/layouts"
-	"gonetsurf/parsers/css/cssom"
 	parsershtml "gonetsurf/parsers/html"
 	"gonetsurf/protocols/http1"
 	"gonetsurf/rendering"
@@ -208,10 +208,9 @@ func layout(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	engine := buildStyleEngine(document)
-	root := layouts.BuildDocument(document, engine)
-	layoutContext := layouts.New(width, height)
-	layoutContext.Layout(root)
+	engine := buildStyleEngine(document, documentURL)
+	page := rendering.NewPage(document, engine, int(width), int(height), documentRenderOptions(documentURL))
+	root := page.Box()
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(buildLayoutBox(root))
@@ -244,7 +243,7 @@ func render(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	surface := rendering.RenderDocumentWithOptions(document, buildStyleEngine(document), width, height, documentRenderOptions(documentURL))
+	surface := rendering.RenderDocumentWithOptions(document, buildStyleEngine(document, documentURL), width, height, documentRenderOptions(documentURL))
 	file, err := os.Create(arguments[1])
 	if err != nil {
 		return err
@@ -282,7 +281,7 @@ func show(arguments []string) error {
 	if err != nil {
 		return err
 	}
-	engine := buildStyleEngine(document)
+	engine := buildStyleEngine(document, documentURL)
 	options := documentRenderOptions(documentURL)
 	surface := rendering.RenderDocumentWithOptions(document, engine, width, height, options)
 	title := "gonetsurf: " + arguments[0]
@@ -341,11 +340,12 @@ func reftestCommand(arguments []string) error {
 		baseURL = referenceURL
 	}
 	options := reftest.Options{
-		Width:     width,
-		Height:    height,
-		Images:    documentImageProvider(baseURL),
-		LoadFont:  documentFontLoader(),
-		Tolerance: 0,
+		Width:          width,
+		Height:         height,
+		Images:         documentImageProvider(baseURL),
+		LoadFont:       documentFontLoader(),
+		LoadStylesheet: fetchStylesheet,
+		Tolerance:      0,
 	}
 	result, err := reftest.Compare(testSource, referenceSource, baseURL, options)
 	if err != nil {
@@ -394,16 +394,20 @@ func documentImageProvider(documentURL *urls.URL) rendering.ImageProvider {
 	}
 }
 
-func buildStyleEngine(document *dom.Document) *styles.Engine {
-	engine := styles.NewEngine(document)
-	document.Node.Descendants(func(node *dom.Node) bool {
-		if node.Type != dom.ElementNode || node.Namespace != dom.NamespaceHTML || !strings.EqualFold(node.Data, "style") {
-			return true
-		}
-		engine.AddStylesheet(cssom.Parse(node.TextContent()))
-		return true
-	})
-	return engine
+func buildStyleEngine(document *dom.Document, base *urls.URL) *styles.Engine {
+	loader := adapters.StylesheetLoader{Fetch: fetchStylesheet}
+	return loader.Engine(document, base)
+}
+
+func fetchStylesheet(target *urls.URL) ([]byte, error) {
+	status, body, err := fetchBody(target.String())
+	if err != nil {
+		return nil, err
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("stylesheet fetch returned status %d", status)
+	}
+	return body, nil
 }
 
 func readLayoutSource(source string) ([]byte, *urls.URL, error) {

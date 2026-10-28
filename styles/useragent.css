@@ -46,6 +46,7 @@ pre { margin: 1em 0; white-space: pre; }
 button, input, select, textarea { display: inline-block; }
 textarea { white-space: pre-wrap; }
 img, video, canvas, iframe, object, embed, svg { display: inline; }
+iframe { width: 300px; height: 150px; }
 picture { display: contents; }
 [hidden], area, track, param { display: none; }
 dialog:not([open]) { display: none; }

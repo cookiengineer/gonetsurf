@@ -409,3 +409,17 @@ func TestLogicalProperties(t *testing.T) {
 		t.Errorf("ltr block padding = %q/%q", style.GetString("padding-top"), style.GetString("padding-bottom"))
 	}
 }
+
+func TestStyleBackgroundShorthandWithCustomProperty(t *testing.T) {
+	document, _, _, paragraph, engine := engineFixture(`
+		:root { --panel: #303040 }
+		p { background: var(--panel); color: var(--missing, white) }
+	`)
+	styles := engine.ComputeDocumentTree(document)
+	if got := styles[paragraph].GetString("background-color"); got != canonicalColor("#303040") {
+		t.Errorf("background-color = %q, want #303040", got)
+	}
+	if got := styles[paragraph].GetString("color"); got != canonicalColor("white") {
+		t.Errorf("color = %q, want white", got)
+	}
+}

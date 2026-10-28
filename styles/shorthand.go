@@ -429,6 +429,12 @@ func parseBackgroundLayer(values []parser.ComponentValue) (backgroundLayer, stri
 			case name == "rgb" || name == "rgba" || name == "hsl" || name == "hsla" || name == "hwb" ||
 				name == "lab" || name == "lch" || name == "oklab" || name == "oklch" || name == "color":
 				color = serialized
+			case name == "var":
+				if afterSlash {
+					sizeTokens = append(sizeTokens, serialized)
+				} else {
+					color = serialized
+				}
 			default:
 				return backgroundLayer{}, "", false
 			}

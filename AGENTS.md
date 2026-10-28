@@ -13,7 +13,7 @@ make corpus-refresh                     # re-download and regenerate vendored co
 
 go build ./...                          # compile everything
 go vet ./...                            # static checks
-gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts rendering windowing browsers ipc runtime brokers shells   # formatting check
+gofmt -l cmd urls parsers protocols caches storages internal dom styles layouts rendering windowing browsers ipc runtime brokers shells adapters   # formatting check
 go test ./... -count=1                  # unit, conformance, and E2E tests
 go test ./urls/ -run TestURLParserConformance -v
 go run ./cmd/netsurfctl deps-check      # enforce the no-third-party policy

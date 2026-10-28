@@ -198,6 +198,9 @@ type Library struct {
 	mutex sync.Mutex
 	faces map[faceKey]font.Face
 
+	familyMutex   sync.RWMutex
+	familyEntries map[string][]*fontEntry
+
 	glyphCache *GlyphCache
 }
 
@@ -222,6 +225,7 @@ func NewLibrary() *Library {
 	return &Library{
 		entries:       append([]*fontEntry(nil), embeddedEntries()...),
 		faces:         make(map[faceKey]font.Face),
+		familyEntries: make(map[string][]*fontEntry),
 		glyphCache:    NewGlyphCache(),
 		system:        &systemState{},
 		resourceCache: newFontResourceCache(),
@@ -252,6 +256,7 @@ func (library *Library) Clone() *Library {
 		system:          library.system,
 		resourceCache:   library.resourceCache,
 		faces:           make(map[faceKey]font.Face),
+		familyEntries:   make(map[string][]*fontEntry),
 		glyphCache:      NewGlyphCache(),
 	}
 	return clone
@@ -305,6 +310,7 @@ func parseSubfamily(subfamily string) (int, bool) {
 
 func (library *Library) loadSystem() {
 	library.system.once.Do(func() {
+		defer library.invalidateFamilyCache()
 		for _, directory := range systemFontDirectories() {
 			filepath.WalkDir(directory, func(path string, entry os.DirEntry, err error) error {
 				if err != nil || entry.IsDir() {
@@ -351,6 +357,24 @@ func systemFontDirectories() []string {
 
 func (library *Library) entriesFor(family string) []*fontEntry {
 	target := normalizeFamily(family)
+	library.familyMutex.RLock()
+	cached, ok := library.familyEntries[target]
+	library.familyMutex.RUnlock()
+	if ok {
+		return cached
+	}
+	result := library.computeEntriesFor(target)
+	library.familyMutex.Lock()
+	if existing, exists := library.familyEntries[target]; exists {
+		result = existing
+	} else {
+		library.familyEntries[target] = result
+	}
+	library.familyMutex.Unlock()
+	return result
+}
+
+func (library *Library) computeEntriesFor(target string) []*fontEntry {
 	var result []*fontEntry
 	for _, entry := range library.authorEntries {
 		if normalizeFamily(entry.family) == target {
@@ -375,6 +399,12 @@ func (library *Library) entriesFor(family string) []*fontEntry {
 		}
 	}
 	return result
+}
+
+func (library *Library) invalidateFamilyCache() {
+	library.familyMutex.Lock()
+	library.familyEntries = make(map[string][]*fontEntry)
+	library.familyMutex.Unlock()
 }
 
 func normalizeFamily(family string) string {

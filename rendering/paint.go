@@ -8,6 +8,7 @@ import (
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 
+	"gonetsurf/dom"
 	"gonetsurf/layouts"
 	"gonetsurf/rendering/fonts"
 	"gonetsurf/urls"
@@ -22,6 +23,14 @@ type Painter struct {
 	Fonts      *fonts.Library
 	Glyphs     *fonts.GlyphCache
 	BaseURL    *urls.URL
+	Subframes  SubframeProvider
+	OffsetX    float64
+	OffsetY    float64
+
+	framePainted  map[*dom.Node]bool
+	colorCache    map[string]Color
+	faceCache     map[fonts.Spec][]font.Face
+	runeFaceCache map[fonts.Spec]map[rune]font.Face
 }
 
 // NewPainter returns a painter using images and the default font library.
@@ -50,7 +59,7 @@ func (painter *Painter) Paint(root *layouts.Box, surface *Surface) {
 	if painter.Glyphs == nil {
 		painter.Glyphs = painter.Fonts.GlyphCache()
 	}
-	painter.paintStackingContext(root, surface, 0, 0)
+	painter.paintStackingContext(root, surface, painter.OffsetX, painter.OffsetY)
 }
 
 type borderSide struct {
@@ -312,6 +321,52 @@ func shadeColor(color Color, factor float64, towardWhite bool) Color {
 	return Color{Red: flip(color.Red), Green: flip(color.Green), Blue: flip(color.Blue), Alpha: color.Alpha}
 }
 
+func (painter *Painter) cachedColor(value string) (Color, bool) {
+	if painter.colorCache == nil {
+		painter.colorCache = make(map[string]Color)
+	}
+	if color, ok := painter.colorCache[value]; ok {
+		return color, color.Alpha != 0
+	}
+	color, ok := ParseColor(value)
+	if ok {
+		painter.colorCache[value] = color
+	}
+	return color, ok
+}
+
+func (painter *Painter) cachedFaces(spec fonts.Spec) []font.Face {
+	if painter.faceCache == nil {
+		painter.faceCache = make(map[fonts.Spec][]font.Face)
+	}
+	if faces, ok := painter.faceCache[spec]; ok {
+		return faces
+	}
+	faces := painter.Fonts.Faces(spec)
+	painter.faceCache[spec] = faces
+	return faces
+}
+
+func (painter *Painter) cachedRuneFace(spec fonts.Spec, faces []font.Face, character rune) font.Face {
+	if painter.runeFaceCache == nil {
+		painter.runeFaceCache = make(map[fonts.Spec]map[rune]font.Face)
+	}
+	cache := painter.runeFaceCache[spec]
+	if cache == nil {
+		cache = make(map[rune]font.Face)
+		painter.runeFaceCache[spec] = cache
+	}
+	if face, ok := cache[character]; ok {
+		return face
+	}
+	face := fonts.FaceForRuneChain(faces, character)
+	if face == nil && len(faces) > 0 {
+		face = faces[0]
+	}
+	cache[character] = face
+	return face
+}
+
 func (painter *Painter) paintText(box *layouts.Box, surface *Surface, offsetX, offsetY float64) {
 	text := box.VisualText
 	if text == "" {
@@ -320,9 +375,17 @@ func (painter *Painter) paintText(box *layouts.Box, surface *Surface, offsetX, o
 	if text == "" {
 		return
 	}
+	clip := surface.Clip()
+	left := box.ContentX + offsetX
+	top := box.ContentY + offsetY
+	if left+box.Width <= clip.X || top+box.Height <= clip.Y ||
+		left >= clip.X+clip.Width || top >= clip.Y+clip.Height {
+		return
+	}
 	color := NewColor(0, 0, 0)
 	if box.Style != nil {
-		if parsed, ok := ParseColor(box.Style.GetString("color")); ok {
+		value := box.Style.GetString("color")
+		if parsed, ok := painter.cachedColor(value); ok {
 			color = parsed
 		}
 	}
@@ -341,7 +404,7 @@ func (painter *Painter) paintText(box *layouts.Box, surface *Surface, offsetX, o
 	}
 	var faces []font.Face
 	if painter.Fonts != nil {
-		faces = painter.Fonts.Faces(spec)
+		faces = painter.cachedFaces(spec)
 	}
 	if len(faces) == 0 {
 		if painter.Face == nil {
@@ -374,7 +437,7 @@ func (painter *Painter) paintText(box *layouts.Box, surface *Surface, offsetX, o
 			continue
 		}
 		face := primary
-		if selected := fonts.FaceForRuneChain(faces, character); selected != nil {
+		if selected := painter.cachedRuneFace(spec, faces, character); selected != nil {
 			face = selected
 		}
 		if previousCharacter >= 0 && face == previousFace {

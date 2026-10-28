@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"gonetsurf/adapters"
 	"gonetsurf/brokers/network"
 	"gonetsurf/brokers/storage"
 	"gonetsurf/browsers"
@@ -24,16 +25,14 @@ import (
 )
 
 const (
-	topBarHeight    = 34
-	statusBarHeight = 20
-	tabWidth        = 150
+	topBarHeight       = 34
+	statusBarHeight    = 20
+	tabWidth           = 150
+	privacyPanelWidth  = 320
+	privacyPanelHeight = 210
+	privacyButtonWidth = 92
+	scrollStep         = 80
 )
-
-type pageState struct {
-	document *dom.Document
-	engine   *styles.Engine
-	url      *urls.URL
-}
 
 // BrokerClients groups the capability-scoped broker clients used by a shell.
 type BrokerClients struct {
@@ -52,16 +51,53 @@ type Shell struct {
 	OmniboxFocused bool
 	OmniboxText    string
 	Caret          int
+	Suggestions    []browsers.Suggestion
+	Suggestion     int
 	Status         string
 	Error          string
 
+	PrivacyOpen bool
+	Privacy     network.PrivacyStats
+
+	draggingTab bool
+	dragFrom    int
+	dragTo      int
+	pointerX    int
+	pointerY    int
+
 	page  *pageState
 	dirty bool
+
+	topBarCache    chromeCache
+	statusBarCache chromeCache
+	privacyCache   chromeCache
+}
+
+type chromeCache struct {
+	source  string
+	width   int
+	height  int
+	surface *rendering.Surface
+}
+
+func (cache *chromeCache) render(source string, width, height int) *rendering.Surface {
+	if cache.surface != nil && cache.source == source && cache.width == width && cache.height == height {
+		return cache.surface
+	}
+	cache.source = source
+	cache.width = width
+	cache.height = height
+	cache.surface = renderChrome(source, width, height)
+	return cache.surface
 }
 
 // New returns a shell with one blank tab and optional broker clients.
 func New(width, height int, initial *urls.URL, brokers ...BrokerClients) *Shell {
 	shell := &Shell{Browser: browsers.New(), Width: width, Height: height, dirty: true}
+	shell.pointerX = width / 2
+	if content := height - topBarHeight - statusBarHeight; content > 0 {
+		shell.pointerY = content / 2
+	}
 	if len(brokers) > 0 {
 		shell.Network = brokers[0].Network
 		shell.Storage = brokers[0].Storage
@@ -104,19 +140,30 @@ func (shell *Shell) Resize(width, height int) {
 func (shell *Shell) Render() *rendering.Surface {
 	result := rendering.NewSurface(shell.Width, shell.Height)
 	result.Clear(rendering.NewColor(255, 255, 255))
-	contentHeight := shell.Height - topBarHeight - statusBarHeight
-	if contentHeight < 0 {
-		contentHeight = 0
-	}
+	contentHeight := shell.contentHeight()
 	if shell.page != nil && contentHeight > 0 {
-		options := shell.resourceOptions(shell.page.url)
-		content := rendering.RenderDocumentWithOptions(shell.page.document, shell.page.engine, shell.Width, contentHeight, options)
+		shell.page.page.Resize(shell.contentWidth(), contentHeight)
+		if tab := shell.Browser.ActiveTab(); tab != nil {
+			shell.page.page.ScrollTo(tab.ScrollX, tab.ScrollY)
+		}
+		content := shell.page.page.Render()
+		if tab := shell.Browser.ActiveTab(); tab != nil {
+			tab.ScrollX, tab.ScrollY = shell.page.page.Scroll()
+		}
 		result.Blit(0, topBarHeight, content, rendering.Copy)
 	}
-	topBar := renderChrome(shell.chromeHTML(), shell.Width, topBarHeight)
+	topBar := shell.topBarCache.render(shell.chromeHTML(), shell.Width, topBarHeight)
 	result.Blit(0, 0, topBar, rendering.Copy)
-	statusBar := renderChrome(shell.statusHTML(), shell.Width, statusBarHeight)
+	statusBar := shell.statusBarCache.render(shell.statusHTML(), shell.Width, statusBarHeight)
 	result.Blit(0, shell.Height-statusBarHeight, statusBar, rendering.Copy)
+	if shell.PrivacyOpen {
+		panel := shell.privacyCache.render(shell.privacyHTML(), privacyPanelWidth, privacyPanelHeight)
+		panelX := shell.Width - privacyPanelWidth
+		if panelX < 0 {
+			panelX = 0
+		}
+		result.Blit(panelX, topBarHeight, panel, rendering.Copy)
+	}
 	return result
 }
 
@@ -178,11 +225,46 @@ func (shell *Shell) statusHTML() string {
 	if len(status) > 140 {
 		status = status[:140]
 	}
+	suggestion := ""
+	if shell.OmniboxFocused && shell.Suggestion >= 0 && shell.Suggestion < len(shell.Suggestions) {
+		suggestion = shell.Suggestions[shell.Suggestion].URL.String()
+	}
+	if suggestion != "" {
+		status = "Tab: " + suggestion
+	}
 	return `<!doctype html><html><head><style>
 html, body { margin:0; padding:0; font-family:sans-serif; font-size:11px; color:#333333 }
 .status { position:absolute; left:6px; top:3px; white-space:nowrap }
 .mode { position:absolute; right:6px; top:3px; color:#555555 }
 </style></head><body><div class="status">` + htmlstd.EscapeString(status) + `</div><div class="mode">archive cache ready</div></body></html>`
+}
+
+func (shell *Shell) privacyHTML() string {
+	site := "(none)"
+	if tab := shell.Browser.ActiveTab(); tab != nil && tab.URL != nil {
+		if tab.URL.Site() != "" {
+			site = tab.URL.Site()
+		} else {
+			site = tab.URL.Hostname()
+		}
+	}
+	thirdParty := len(shell.Privacy.ThirdPartyHosts)
+	return `<!doctype html><html><head><style>
+html, body { margin:0; padding:0; font-family:sans-serif; font-size:11px; color:#222222; background:#f7f7fa }
+.title { position:absolute; left:10px; top:8px; font-size:13px; font-weight:bold }
+.row { position:absolute; left:10px; white-space:nowrap }
+.note { color:#555555 }
+.button { position:absolute; left:10px; top:160px; width:280px; height:30px; box-sizing:border-box; padding:7px 10px; border:1px solid #777799; background:#e6e6ee; text-align:center }
+</style></head><body>
+<div class="title">Privacy dashboard</div>
+<div class="row" style="top:34px">site: ` + htmlstd.EscapeString(site) + `</div>
+<div class="row" style="top:54px">partition: ` + htmlstd.EscapeString(shell.Privacy.Partition) + `</div>
+<div class="row" style="top:74px">cookies: ` + fmt.Sprintf("%d", shell.Privacy.CookieCount) + `</div>
+<div class="row" style="top:94px">third-party hosts: ` + fmt.Sprintf("%d", thirdParty) + `</div>
+<div class="row" style="top:114px">cached responses: ` + fmt.Sprintf("%d", shell.Privacy.CacheEntries) + `</div>
+<div class="row note" style="top:138px">Click to clear tracking cookies and cache.</div>
+<div class="button">Reset tracking session</div>
+</body></html>`
 }
 
 func renderChrome(source string, width, height int) *rendering.Surface {
@@ -206,6 +288,15 @@ func styleEngine(document *dom.Document) *styles.Engine {
 		return true
 	})
 	return engine
+}
+
+func (shell *Shell) stylesheetEngine(document *dom.Document, base, topLevel *urls.URL) *styles.Engine {
+	loader := adapters.StylesheetLoader{
+		Fetch: func(target *urls.URL) ([]byte, error) {
+			return shell.fetchResource(target.String(), topLevel)
+		},
+	}
+	return loader.Engine(document, base)
 }
 
 // Run processes events and paints frames until the window closes or ctx ends.
@@ -259,7 +350,11 @@ func (shell *Shell) HandleEvent(ctx context.Context, input windowing.InputWindow
 	case windowing.EventKeyPress:
 		shell.handleKey(ctx, input, event)
 	case windowing.EventMousePress:
-		shell.handleClick(event)
+		shell.handleMousePress(ctx, event)
+	case windowing.EventMouseMove:
+		shell.handleMouseMove(event)
+	case windowing.EventMouseRelease:
+		shell.handleMouseRelease(event)
 	}
 	shell.dirty = true
 }
@@ -270,10 +365,12 @@ func (shell *Shell) handleKey(ctx context.Context, input windowing.InputWindow, 
 	case control && strings.EqualFold(event.Key, "l"):
 		shell.focusOmnibox()
 	case control && strings.EqualFold(event.Key, "t"):
+		shell.captureScroll()
 		shell.Browser.NewTab(nil)
 		shell.page = nil
 		shell.focusOmnibox()
 	case control && strings.EqualFold(event.Key, "w"):
+		shell.captureScroll()
 		_ = shell.Browser.CloseTab(shell.Browser.Active)
 		shell.page = nil
 		shell.syncActiveTab()
@@ -283,7 +380,7 @@ func (shell *Shell) handleKey(ctx context.Context, input windowing.InputWindow, 
 		shell.reload()
 	case control && strings.EqualFold(event.Key, "c"):
 		if input != nil && shell.Browser.ActiveTab() != nil && shell.Browser.ActiveTab().URL != nil {
-			input.SetClipboard(shell.Browser.ActiveTab().URL.String())
+			_ = input.SetClipboard(shell.Browser.ActiveTab().URL.String())
 			shell.Status = "Copied URL"
 		}
 	case control && strings.EqualFold(event.Key, "v"):
@@ -292,25 +389,39 @@ func (shell *Shell) handleKey(ctx context.Context, input windowing.InputWindow, 
 				shell.OmniboxText += text
 				shell.Caret = len(shell.OmniboxText)
 				shell.OmniboxFocused = true
+				shell.updateSuggestions()
 			}
 		}
 	case strings.EqualFold(event.Key, "Escape"):
-		shell.OmniboxFocused = false
+		if shell.PrivacyOpen {
+			shell.PrivacyOpen = false
+		} else {
+			shell.OmniboxFocused = false
+			shell.Suggestions = nil
+		}
 	case strings.EqualFold(event.Key, "Enter"):
 		if shell.OmniboxFocused {
 			shell.navigate(shell.OmniboxText)
 			shell.OmniboxFocused = false
+			shell.Suggestions = nil
+		}
+	case strings.EqualFold(event.Key, "Tab"):
+		if shell.OmniboxFocused {
+			shell.acceptSuggestion()
 		}
 	case strings.EqualFold(event.Key, "BackSpace"):
 		if shell.OmniboxFocused {
 			shell.deleteBackward()
+			shell.updateSuggestions()
 		} else {
+			shell.captureScroll()
 			shell.Browser.Back()
 			shell.syncActiveTab()
 		}
 	case strings.EqualFold(event.Key, "Delete"):
 		if shell.OmniboxFocused {
 			shell.deleteForward()
+			shell.updateSuggestions()
 		}
 	case strings.EqualFold(event.Key, "Left"):
 		if shell.OmniboxFocused {
@@ -318,6 +429,7 @@ func (shell *Shell) handleKey(ctx context.Context, input windowing.InputWindow, 
 				shell.Caret--
 			}
 		} else if event.Modifiers.Alt {
+			shell.captureScroll()
 			shell.Browser.Back()
 			shell.syncActiveTab()
 		}
@@ -327,37 +439,340 @@ func (shell *Shell) handleKey(ctx context.Context, input windowing.InputWindow, 
 				shell.Caret++
 			}
 		} else if event.Modifiers.Alt {
+			shell.captureScroll()
 			shell.Browser.Forward()
 			shell.syncActiveTab()
+		}
+	case strings.EqualFold(event.Key, "Down"):
+		if shell.OmniboxFocused {
+			shell.moveSuggestion(1)
+		} else {
+			shell.scrollBy(0, scrollStep)
+		}
+	case strings.EqualFold(event.Key, "Up"):
+		if shell.OmniboxFocused {
+			shell.moveSuggestion(-1)
+		} else {
+			shell.scrollBy(0, -scrollStep)
+		}
+	case strings.EqualFold(event.Key, "PageDown"), strings.EqualFold(event.Key, " ") && !shell.OmniboxFocused:
+		shell.scrollBy(0, float64(shell.contentHeight()*4/5))
+	case strings.EqualFold(event.Key, "PageUp"):
+		if !shell.OmniboxFocused {
+			shell.scrollBy(0, -float64(shell.contentHeight()*4/5))
 		}
 	case strings.EqualFold(event.Key, "Home"):
 		if shell.OmniboxFocused {
 			shell.Caret = 0
+		} else {
+			shell.scrollTo(0, 0)
 		}
 	case strings.EqualFold(event.Key, "End"):
 		if shell.OmniboxFocused {
 			shell.Caret = len(shell.OmniboxText)
+		} else {
+			_, maximum := shell.maximumScroll()
+			shell.scrollTo(0, maximum)
 		}
 	default:
 		if shell.OmniboxFocused && event.Text != "" {
 			shell.insertText(event.Text)
+			shell.updateSuggestions()
 		}
 	}
 }
 
-func (shell *Shell) handleClick(event windowing.Event) {
+func (shell *Shell) handleMousePress(ctx context.Context, event windowing.Event) {
+	shell.pointerX = event.X
+	if contentY := event.Y - topBarHeight; contentY >= 0 {
+		shell.pointerY = contentY
+	}
+	if event.Button == 4 {
+		shell.scrollBy(0, -scrollStep)
+		return
+	}
+	if event.Button == 5 {
+		shell.scrollBy(0, scrollStep)
+		return
+	}
 	if event.Y < topBarHeight {
+		if event.X >= shell.Width-privacyButtonWidth {
+			shell.togglePrivacy(ctx)
+			return
+		}
 		tabIndex := event.X / tabWidth
 		if tabIndex < len(shell.Browser.Tabs) {
+			shell.captureScroll()
 			_ = shell.Browser.SelectTab(tabIndex)
 			shell.syncActiveTab()
 			shell.OmniboxFocused = false
+			shell.draggingTab = true
+			shell.dragFrom = tabIndex
+			shell.dragTo = tabIndex
 			return
 		}
 		shell.focusOmnibox()
 		return
 	}
+	if shell.PrivacyOpen && shell.inPrivacyPanel(event.X, event.Y) {
+		if shell.inPrivacyButton(event.X, event.Y) {
+			shell.resetTrackingSession(ctx)
+		}
+		return
+	}
 	shell.OmniboxFocused = false
+	contentY := event.Y - topBarHeight
+	shell.handleContentClick(ctx, float64(event.X), float64(contentY))
+}
+
+func (shell *Shell) handleMouseMove(event windowing.Event) {
+	if contentY := event.Y - topBarHeight; contentY >= 0 {
+		shell.pointerX = event.X
+		shell.pointerY = contentY
+	}
+	if !shell.draggingTab || len(shell.Browser.Tabs) == 0 {
+		return
+	}
+	target := event.X / tabWidth
+	if target < 0 {
+		target = 0
+	}
+	if target >= len(shell.Browser.Tabs) {
+		target = len(shell.Browser.Tabs) - 1
+	}
+	shell.dragTo = target
+}
+
+func (shell *Shell) handleMouseRelease(event windowing.Event) {
+	if !shell.draggingTab {
+		return
+	}
+	shell.draggingTab = false
+	if shell.dragFrom == shell.dragTo {
+		return
+	}
+	if err := shell.Browser.MoveTab(shell.dragFrom, shell.dragTo); err == nil {
+		shell.Status = "Reordered tabs"
+	}
+}
+
+func (shell *Shell) handleContentClick(ctx context.Context, x, y float64) {
+	if shell.page == nil {
+		return
+	}
+	shell.clickPage(ctx, shell.page, x, y)
+}
+
+func (shell *Shell) clickPage(ctx context.Context, state *pageState, x, y float64) bool {
+	if state == nil || state.page == nil {
+		return false
+	}
+	box := state.page.HitTest(x, y)
+	if box == nil {
+		return false
+	}
+	if iframe := ancestorIframe(box.Node); iframe != nil {
+		frame := state.frames[iframe]
+		if frame != nil {
+			if rect, ok := state.page.BoxRect(iframe); ok {
+				shell.clickPage(ctx, frame, x-rect.X, y-rect.Y)
+			}
+			return true
+		}
+	}
+	link := ancestorLink(box.Node)
+	if link == nil {
+		return false
+	}
+	href, ok := link.GetAttribute("href")
+	if !ok || strings.TrimSpace(href) == "" {
+		return true
+	}
+	if _, downloads := link.GetAttribute("download"); downloads {
+		shell.Status = "Downloads are not supported"
+		return true
+	}
+	address, err := urls.ParseReference(state.url, href)
+	if err != nil {
+		shell.Error = err.Error()
+		return true
+	}
+	target, _ := link.GetAttribute("target")
+	if state.model != nil && !sandboxAllowsNavigation(state.model.Sandbox, target) {
+		shell.Status = "Navigation blocked by iframe sandbox"
+		return true
+	}
+	shell.followLink(ctx, state, address, target)
+	return true
+}
+
+func sandboxAllowsNavigation(sandbox uint32, target string) bool {
+	flags := dom.SandboxFlags(sandbox)
+	switch strings.ToLower(strings.TrimSpace(target)) {
+	case "_blank":
+		return flags&dom.SandboxAuxiliaryNavigation == 0
+	case "_top", "_parent":
+		return flags&dom.SandboxTopLevelNavigation == 0
+	default:
+		return flags.AllowsNavigation()
+	}
+}
+
+func (shell *Shell) followLink(ctx context.Context, state *pageState, address *urls.URL, target string) {
+	switch strings.ToLower(strings.TrimSpace(target)) {
+	case "_blank":
+		shell.openTab(address)
+		return
+	case "_top", "_parent":
+		shell.navigateTo(address, false)
+		return
+	}
+	if state == shell.page {
+		shell.navigateTo(address, false)
+		return
+	}
+	shell.navigateFrameState(ctx, state, address, false)
+}
+
+func (shell *Shell) openTab(address *urls.URL) {
+	shell.captureScroll()
+	openerID := 0
+	if active := shell.Browser.ActiveTab(); active != nil {
+		openerID = active.ID
+	}
+	shell.Browser.NewTabWithOpener(nil, openerID)
+	shell.page = nil
+	shell.navigateTo(address, false)
+}
+
+func ancestorLink(node *dom.Node) *dom.Node {
+	for current := node; current != nil; current = current.Parent() {
+		if current.Type != dom.ElementNode {
+			continue
+		}
+		if current.Namespace == dom.NamespaceHTML && current.Data == "a" {
+			return current
+		}
+	}
+	return nil
+}
+
+func ancestorIframe(node *dom.Node) *dom.Node {
+	for current := node; current != nil; current = current.Parent() {
+		if current.Type != dom.ElementNode {
+			continue
+		}
+		if current.Namespace == dom.NamespaceHTML && current.Data == "iframe" {
+			return current
+		}
+	}
+	return nil
+}
+
+func (shell *Shell) togglePrivacy(ctx context.Context) {
+	shell.PrivacyOpen = !shell.PrivacyOpen
+	if shell.PrivacyOpen {
+		shell.refreshPrivacy(ctx)
+	}
+}
+
+func (shell *Shell) refreshPrivacy(ctx context.Context) {
+	tab := shell.Browser.ActiveTab()
+	if tab == nil || tab.URL == nil || shell.Network == nil {
+		return
+	}
+	partition := tab.URL.Site()
+	topLevel := partition
+	if partition == "" {
+		partition = tab.URL.Hostname()
+		topLevel = partition
+	}
+	stats, err := shell.Network.Privacy(ctx, partition, topLevel)
+	if err != nil {
+		shell.Error = err.Error()
+		return
+	}
+	shell.Privacy = stats
+}
+
+func (shell *Shell) resetTrackingSession(ctx context.Context) {
+	tab := shell.Browser.ActiveTab()
+	if tab == nil || tab.URL == nil || shell.Network == nil {
+		return
+	}
+	partition := tab.URL.Site()
+	topLevel := partition
+	if partition == "" {
+		partition = tab.URL.Hostname()
+		topLevel = partition
+	}
+	stats, err := shell.Network.ResetTrackingSession(ctx, partition, topLevel)
+	if err != nil {
+		shell.Error = err.Error()
+		return
+	}
+	shell.Privacy = stats
+	shell.Status = fmt.Sprintf("Reset tracking session (%d cookies)", stats.ResetCookies)
+}
+
+func (shell *Shell) inPrivacyPanel(x, y int) bool {
+	panelX := shell.Width - privacyPanelWidth
+	if panelX < 0 {
+		panelX = 0
+	}
+	return x >= panelX && x < panelX+privacyPanelWidth && y >= topBarHeight && y < topBarHeight+privacyPanelHeight
+}
+
+func (shell *Shell) inPrivacyButton(x, y int) bool {
+	panelX := shell.Width - privacyPanelWidth
+	if panelX < 0 {
+		panelX = 0
+	}
+	return x >= panelX+10 && x < panelX+290 && y >= topBarHeight+160 && y < topBarHeight+190
+}
+
+func (shell *Shell) scrollBy(deltaX, deltaY float64) {
+	if shell.page == nil || shell.page.page == nil {
+		return
+	}
+	shell.page.page.ScrollByAt(float64(shell.pointerX), float64(shell.pointerY), deltaX, deltaY)
+	shell.syncScroll()
+}
+
+func (shell *Shell) scrollTo(x, y float64) {
+	if shell.page == nil || shell.page.page == nil {
+		return
+	}
+	shell.page.page.ScrollToAt(float64(shell.pointerX), float64(shell.pointerY), x, y)
+	shell.syncScroll()
+}
+
+func (shell *Shell) maximumScroll() (float64, float64) {
+	if shell.page == nil || shell.page.page == nil {
+		return 0, 0
+	}
+	return shell.page.page.MaxScrollAt(float64(shell.pointerX), float64(shell.pointerY))
+}
+
+func (shell *Shell) syncScroll() {
+	if shell.page == nil || shell.page.page == nil {
+		return
+	}
+	x, y := shell.page.page.Scroll()
+	if tab := shell.Browser.ActiveTab(); tab != nil {
+		tab.SetScroll(x, y)
+	}
+	shell.dirty = true
+}
+
+func (shell *Shell) captureScroll() {
+	if shell.page == nil || shell.page.page == nil {
+		return
+	}
+	x, y := shell.page.page.Scroll()
+	if tab := shell.Browser.ActiveTab(); tab != nil {
+		tab.SetScroll(x, y)
+	}
 }
 
 func (shell *Shell) focusOmnibox() {
@@ -366,6 +781,47 @@ func (shell *Shell) focusOmnibox() {
 		shell.OmniboxText = tab.URL.String()
 	}
 	shell.Caret = len(shell.OmniboxText)
+	shell.updateSuggestions()
+}
+
+func (shell *Shell) updateSuggestions() {
+	if !shell.OmniboxFocused {
+		shell.Suggestions = nil
+		shell.Suggestion = -1
+		return
+	}
+	shell.Suggestions = shell.Browser.Suggestions(shell.OmniboxText, 6)
+	shell.Suggestion = -1
+	if len(shell.Suggestions) > 0 {
+		shell.Suggestion = 0
+	}
+}
+
+func (shell *Shell) moveSuggestion(direction int) {
+	if len(shell.Suggestions) == 0 {
+		return
+	}
+	if shell.Suggestion < 0 {
+		shell.Suggestion = 0
+	} else {
+		shell.Suggestion = (shell.Suggestion + direction) % len(shell.Suggestions)
+		if shell.Suggestion < 0 {
+			shell.Suggestion += len(shell.Suggestions)
+		}
+	}
+	shell.OmniboxText = shell.Suggestions[shell.Suggestion].URL.String()
+	shell.Caret = len(shell.OmniboxText)
+}
+
+func (shell *Shell) acceptSuggestion() {
+	if shell.Suggestion < 0 || shell.Suggestion >= len(shell.Suggestions) {
+		return
+	}
+	shell.OmniboxText = shell.Suggestions[shell.Suggestion].URL.String()
+	shell.Caret = len(shell.OmniboxText)
+	shell.navigate(shell.OmniboxText)
+	shell.OmniboxFocused = false
+	shell.Suggestions = nil
 }
 
 func (shell *Shell) syncActiveTab() {
@@ -373,6 +829,7 @@ func (shell *Shell) syncActiveTab() {
 	if tab == nil {
 		shell.OmniboxText = ""
 		shell.Caret = 0
+		shell.page = nil
 		return
 	}
 	if tab.URL != nil {
@@ -388,6 +845,7 @@ func (shell *Shell) cycleTab(direction int) {
 	if len(shell.Browser.Tabs) == 0 {
 		return
 	}
+	shell.captureScroll()
 	index := (shell.Browser.Active + direction) % len(shell.Browser.Tabs)
 	if index < 0 {
 		index += len(shell.Browser.Tabs)
@@ -428,33 +886,114 @@ func (shell *Shell) navigate(input string) {
 	if address == "" {
 		return
 	}
-	parsed, err := urls.Parse(address)
-	if err != nil {
-		if candidate, candidateErr := urls.Parse("https://" + address); candidateErr == nil {
-			parsed = candidate
-		} else {
-			shell.Error = err.Error()
+	tab := shell.Browser.ActiveTab()
+	if strings.HasPrefix(address, "#") && tab != nil && tab.URL != nil {
+		if parsed, err := urls.ParseReference(tab.URL, address); err == nil {
+			shell.navigateSameDocument(parsed)
 			return
 		}
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" && parsed.Scheme != "about" && parsed.Scheme != "data" {
-		shell.Error = "unsupported scheme " + parsed.Scheme
+	parsed, err := browsers.NavigationTarget(address, browsers.DefaultSearchTemplate)
+	if err != nil {
+		shell.Error = err.Error()
+		return
+	}
+	shell.navigateTo(parsed, false)
+}
+
+func (shell *Shell) navigateTo(target *urls.URL, reload bool) {
+	if target == nil {
+		return
+	}
+	if target.Scheme != "http" && target.Scheme != "https" && target.Scheme != "about" && target.Scheme != "data" {
+		shell.Error = "unsupported scheme " + target.Scheme
 		return
 	}
 	tab := shell.Browser.ActiveTab()
 	if tab == nil {
-		tab = shell.Browser.NewTab(parsed)
+		tab = shell.Browser.NewTab(nil)
 	}
-	_ = shell.Browser.Navigate(tab, parsed)
-	shell.OmniboxText = parsed.String()
+	shell.captureScroll()
+	if browsers.ClassifyNavigation(tab.URL, target) {
+		shell.navigateSameDocument(target)
+		return
+	}
+	_ = shell.Browser.Navigate(tab, target)
+	shell.OmniboxText = target.String()
 	shell.Caret = len(shell.OmniboxText)
-	shell.Status = "Loading " + parsed.String()
+	shell.Status = "Loading " + target.String()
 	shell.Error = ""
-	shell.loadActiveTab(false)
+	shell.loadActiveTab(reload)
 	if tab.URL != nil {
 		shell.OmniboxText = tab.URL.String()
 		shell.Caret = len(shell.OmniboxText)
 	}
+}
+
+func (shell *Shell) navigateSameDocument(target *urls.URL) {
+	tab := shell.Browser.ActiveTab()
+	if tab == nil || target == nil {
+		return
+	}
+	shell.captureScroll()
+	_ = shell.Browser.NavigateSameDocument(tab, target)
+	if shell.page != nil {
+		shell.page.topLevel = target
+		shell.scrollToFragmentState(shell.page, target)
+	}
+	tab.URL = target
+	shell.OmniboxText = target.String()
+	shell.Caret = len(shell.OmniboxText)
+	shell.Status = "Navigated to " + target.String()
+	shell.Error = ""
+	shell.dirty = true
+}
+
+func (shell *Shell) navigateFrameState(ctx context.Context, state *pageState, target *urls.URL, reload bool) {
+	if state == nil || target == nil {
+		return
+	}
+	if browsers.ClassifyNavigation(state.url, target) {
+		if state.model != nil && state.tab != nil {
+			_ = shell.Browser.NavigateFrame(state.tab, state.model, target)
+		}
+		shell.scrollToFragmentState(state, target)
+		shell.dirty = true
+		return
+	}
+	topLevel := state.topLevel
+	if topLevel == nil {
+		topLevel = state.url
+	}
+	body, pageURL, err := shell.fetchURL(target, reload, topLevel)
+	if err != nil {
+		shell.Error = err.Error()
+		return
+	}
+	document, err := html.Parse(body, html.ParseOptions{URL: pageURL})
+	if err != nil {
+		shell.Error = err.Error()
+		return
+	}
+	width, height := state.page.Width, state.page.Height
+	if state.model != nil && state.tab != nil {
+		_ = shell.Browser.NavigateFrame(state.tab, state.model, pageURL)
+	}
+	replacement := &pageState{
+		document: document,
+		engine:   shell.stylesheetEngine(document, pageURL, topLevel),
+		url:      pageURL,
+		topLevel: topLevel,
+		tab:      state.tab,
+		model:    state.model,
+		frames:   make(map[*dom.Node]*pageState),
+	}
+	options := shell.resourceOptions(pageURL, topLevel)
+	replacement.page = rendering.NewPage(document, replacement.engine, width, height, options)
+	replacement.page.Options.Subframes = subframeProvider{shell: shell, owner: replacement}
+	shell.loadFrames(replacement, topLevel, reload, 1, nil)
+	*state = *replacement
+	shell.dirty = true
 }
 
 func (shell *Shell) reload() {
@@ -462,6 +1001,7 @@ func (shell *Shell) reload() {
 	if tab == nil || tab.URL == nil {
 		return
 	}
+	shell.captureScroll()
 	shell.Browser.Reload()
 	shell.loadActiveTab(true)
 }
@@ -478,7 +1018,7 @@ func (shell *Shell) loadActiveTab(reload bool) {
 		return
 	}
 	shell.Status = "Loading " + tab.URL.String()
-	source, pageURL, err := shell.fetch(tab.URL, reload)
+	source, pageURL, err := shell.fetchURL(tab.URL, reload, tab.URL)
 	if err != nil {
 		shell.Error = err.Error()
 		shell.page = nil
@@ -492,8 +1032,11 @@ func (shell *Shell) loadActiveTab(reload bool) {
 		shell.dirty = true
 		return
 	}
-	engine := styleEngine(document)
-	shell.page = &pageState{document: document, engine: engine, url: pageURL}
+	engine := shell.stylesheetEngine(document, pageURL, pageURL)
+	state := shell.newPageState(document, engine, pageURL, pageURL, shell.contentWidth(), shell.contentHeight(), tab, 0)
+	state.page.ScrollTo(tab.ScrollX, tab.ScrollY)
+	tab.SetScroll(state.page.Scroll())
+	shell.page = state
 	if tab.URL != nil {
 		tab.URL = pageURL
 	}
@@ -505,6 +1048,74 @@ func (shell *Shell) loadActiveTab(reload bool) {
 	shell.Status = fmt.Sprintf("Loaded %s", tab.Title)
 	shell.Error = ""
 	shell.dirty = true
+}
+
+func (shell *Shell) scrollToFragmentState(state *pageState, target *urls.URL) {
+	if state == nil || state.page == nil || target == nil {
+		return
+	}
+	state.document.URL = target
+	state.url = target
+	if !target.HasFragment || target.Fragment == "" {
+		state.page.ScrollTo(0, 0)
+		if state == shell.page {
+			shell.syncScroll()
+		}
+		return
+	}
+	identifier := decodeFragment(target.Fragment)
+	node := state.document.GetElementById(identifier)
+	if node == nil {
+		state.document.Node.Descendants(func(candidate *dom.Node) bool {
+			if node != nil || candidate.Type != dom.ElementNode {
+				return node == nil
+			}
+			if value, ok := candidate.GetAttribute("name"); ok && value == identifier {
+				node = candidate
+				return false
+			}
+			return true
+		})
+	}
+	if node == nil {
+		return
+	}
+	if box := state.page.BoxForNode(node); box != nil {
+		state.page.ScrollTo(0, box.Y)
+		if state == shell.page {
+			shell.syncScroll()
+		}
+	}
+}
+
+func decodeFragment(value string) string {
+	var builder strings.Builder
+	for index := 0; index < len(value); index++ {
+		if value[index] == '%' && index+2 < len(value) {
+			high, highOK := hexValue(value[index+1])
+			low, lowOK := hexValue(value[index+2])
+			if highOK && lowOK {
+				builder.WriteByte(high<<4 | low)
+				index += 2
+				continue
+			}
+		}
+		builder.WriteByte(value[index])
+	}
+	return builder.String()
+}
+
+func hexValue(value byte) (byte, bool) {
+	switch {
+	case value >= '0' && value <= '9':
+		return value - '0', true
+	case value >= 'a' && value <= 'f':
+		return value - 'a' + 10, true
+	case value >= 'A' && value <= 'F':
+		return value - 'A' + 10, true
+	default:
+		return 0, false
+	}
 }
 
 func documentTitle(document *dom.Document) string {
@@ -519,17 +1130,40 @@ func documentTitle(document *dom.Document) string {
 }
 
 func (shell *Shell) fetch(target *urls.URL, reload bool) ([]byte, *urls.URL, error) {
+	return shell.fetchURL(target, reload, target)
+}
+
+func (shell *Shell) fetchURL(target *urls.URL, reload bool, topLevel *urls.URL) ([]byte, *urls.URL, error) {
+	if target == nil {
+		return nil, target, fmt.Errorf("nil URL")
+	}
 	switch target.Scheme {
+	case "data":
+		_, body, ok := target.DataURL()
+		if !ok {
+			return nil, target, fmt.Errorf("invalid data URL")
+		}
+		return body, target, nil
+	case "about":
+		return []byte("<!doctype html><html><body></body></html>"), target, nil
 	case "http", "https":
 		if shell.Network == nil {
 			return nil, target, fmt.Errorf("network broker is unavailable")
+		}
+		partition := ""
+		if topLevel != nil {
+			partition = topLevel.Site()
+		}
+		if partition == "" {
+			partition = target.Site()
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		response, err := shell.Network.Fetch(ctx, network.Request{
 			URL:       target.String(),
 			Method:    "GET",
-			Partition: target.Site(),
+			Partition: partition,
+			TopLevel:  partition,
 			Reload:    reload,
 		})
 		if err != nil {
@@ -547,7 +1181,7 @@ func (shell *Shell) fetch(target *urls.URL, reload bool) ([]byte, *urls.URL, err
 	}
 }
 
-func (shell *Shell) fetchResource(resource string) ([]byte, error) {
+func (shell *Shell) fetchResource(resource string, topLevel *urls.URL) ([]byte, error) {
 	target, err := urls.Parse(resource)
 	if err != nil {
 		return nil, err
@@ -565,9 +1199,21 @@ func (shell *Shell) fetchResource(resource string) ([]byte, error) {
 	if shell.Network == nil {
 		return nil, fmt.Errorf("network broker is unavailable")
 	}
+	partition := ""
+	if topLevel != nil {
+		partition = topLevel.Site()
+	}
+	if partition == "" {
+		partition = target.Site()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	response, err := shell.Network.Fetch(ctx, network.Request{URL: target.String(), Method: "GET", Partition: target.Site()})
+	response, err := shell.Network.Fetch(ctx, network.Request{
+		URL:       target.String(),
+		Method:    "GET",
+		Partition: partition,
+		TopLevel:  partition,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -611,12 +1257,15 @@ func (shell *Shell) LoadSession(ctx context.Context) error {
 	return nil
 }
 
-func (shell *Shell) resourceOptions(base *urls.URL) rendering.Options {
+func (shell *Shell) resourceOptions(base, topLevel *urls.URL) rendering.Options {
+	loader := func(resource string) ([]byte, error) {
+		return shell.fetchResource(resource, topLevel)
+	}
 	return rendering.Options{
 		Images: rendering.URLImageProvider{
 			Base:  base,
-			Fetch: shell.fetchResource,
+			Fetch: loader,
 		},
-		LoadFont: shell.fetchResource,
+		LoadFont: loader,
 	}
 }

@@ -36,6 +36,19 @@ func (painter *Painter) paintReplacedContent(box *layouts.Box, surface *Surface,
 
 	var source string
 	switch tag {
+	case "iframe":
+		if painter.Subframes != nil {
+			frame := painter.Subframes.RenderSubframe(box.Node, int(contentWidth), int(contentHeight))
+			if frame != nil {
+				if painter.framePainted == nil {
+					painter.framePainted = make(map[*dom.Node]bool)
+				}
+				painter.framePainted[box.Node] = true
+				contentRect := Rect{X: contentX, Y: contentY, Width: contentWidth, Height: contentHeight}
+				surface.DrawImage(frame.Image(), contentRect, contentRect, nil, 1)
+			}
+		}
+		return
 	case "img":
 		source = imageSourceFor(box.Node, contentWidth)
 	case "video":

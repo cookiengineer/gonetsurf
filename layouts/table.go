@@ -23,7 +23,7 @@ func displayOf(box *Box) string {
 	if box == nil || box.Style == nil {
 		return ""
 	}
-	return strings.ToLower(strings.TrimSpace(box.Style.GetString("display")))
+	return normalizeDisplay(box.Style.GetString("display"))
 }
 
 func (layout *Layout) layoutTable(box *Box) {

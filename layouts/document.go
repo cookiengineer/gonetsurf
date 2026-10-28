@@ -12,6 +12,8 @@ type DocumentLayout struct {
 	Engine         *styles.Engine
 	ViewportWidth  float64
 	ViewportHeight float64
+	Shaper         TextShaper
+	Metrics        func(*styles.Style) FontMetrics
 
 	box              *Box
 	layout           *Layout
@@ -56,6 +58,8 @@ func (documentLayout *DocumentLayout) Reflow() *Box {
 		styleMap := documentLayout.Engine.ComputeDocumentTree(documentLayout.Document)
 		refreshBoxStyles(documentLayout.box, styleMap)
 		documentLayout.layout = New(documentLayout.ViewportWidth, documentLayout.ViewportHeight)
+		documentLayout.layout.Shaper = documentLayout.Shaper
+		documentLayout.layout.Metrics = documentLayout.Metrics
 		documentLayout.layout.Dirty = dirtyBoxSet(documentLayout.box, dirtyNodes)
 		documentLayout.layout.Layout(documentLayout.box)
 		documentLayout.Document.ClearDirty()
@@ -63,6 +67,8 @@ func (documentLayout *DocumentLayout) Reflow() *Box {
 		return documentLayout.box
 	}
 	documentLayout.layout = New(documentLayout.ViewportWidth, documentLayout.ViewportHeight)
+	documentLayout.layout.Shaper = documentLayout.Shaper
+	documentLayout.layout.Metrics = documentLayout.Metrics
 	documentLayout.box = BuildDocument(documentLayout.Document, documentLayout.Engine)
 	documentLayout.layout.Layout(documentLayout.box)
 	documentLayout.version = documentLayout.Document.MutationVersion()

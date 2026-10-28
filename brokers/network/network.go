@@ -19,20 +19,41 @@ import (
 	"gonetsurf/urls"
 )
 
-// Request is a broker fetch request.
+// Broker request actions.
+const (
+	ActionFetch   = "fetch"
+	ActionPrivacy = "privacy"
+	ActionReset   = "reset-tracking-session"
+)
+
+// Request is a broker request.
 type Request struct {
+	Action    string              `json:"action,omitempty"`
 	URL       string              `json:"url"`
 	Method    string              `json:"method,omitempty"`
 	Partition string              `json:"partition,omitempty"`
+	TopLevel  string              `json:"topLevel,omitempty"`
 	Reload    bool                `json:"reload,omitempty"`
 	Header    map[string][]string `json:"header,omitempty"`
 }
 
-// Response is a broker fetch response.
+// Response is a broker response.
 type Response struct {
-	Status int                 `json:"status"`
-	Header map[string][]string `json:"header,omitempty"`
-	Body   []byte              `json:"body,omitempty"`
+	Status    int                 `json:"status"`
+	Header    map[string][]string `json:"header,omitempty"`
+	Body      []byte              `json:"body,omitempty"`
+	FromCache bool                `json:"fromCache,omitempty"`
+	Privacy   *PrivacyStats       `json:"privacy,omitempty"`
+}
+
+// PrivacyStats describes the privacy state for one partition.
+type PrivacyStats struct {
+	Partition       string   `json:"partition"`
+	TopLevel        string   `json:"topLevel,omitempty"`
+	CookieCount     int      `json:"cookieCount"`
+	ThirdPartyHosts []string `json:"thirdPartyHosts,omitempty"`
+	CacheEntries    int      `json:"cacheEntries"`
+	ResetCookies    int      `json:"resetCookies,omitempty"`
 }
 
 // Fetcher performs a validated request.
@@ -40,11 +61,18 @@ type Fetcher interface {
 	Fetch(ctx context.Context, request Request) (Response, error)
 }
 
+// PrivacyProvider exposes privacy state and tracking-session resets.
+type PrivacyProvider interface {
+	Privacy(partition, topLevel string) PrivacyStats
+	ResetTrackingSession(partition, topLevel string) PrivacyStats
+}
+
 // HTTPFetcher fetches HTTP(S) requests with the project HTTP client.
 type HTTPFetcher struct {
-	Client *http1.Client
-	Jar    *cookies.Jar
-	Cache  *Cache
+	Client  *http1.Client
+	Jar     *cookies.Jar
+	Cache   *Cache
+	Session *cookies.SessionManager
 }
 
 // Fetch implements Fetcher.
@@ -60,8 +88,16 @@ func (fetcher HTTPFetcher) Fetch(ctx context.Context, request Request) (Response
 	if method == "" {
 		method = "GET"
 	}
+	topLevel := request.TopLevel
+	if topLevel == "" {
+		topLevel = request.Partition
+	}
+	if fetcher.Session != nil {
+		fetcher.Session.RecordRequest(topLevel, target.Hostname(), "")
+	}
 	if method == "GET" && !request.Reload && fetcher.Cache != nil {
 		if cached, ok := fetcher.Cache.Get(request); ok {
+			cached.FromCache = true
 			return cached, nil
 		}
 	}
@@ -163,7 +199,7 @@ func (server *Server) Serve(ctx context.Context) error {
 			server.sendError(message.RequestID, "invalid request")
 			continue
 		}
-		response, err := fetcher.Fetch(ctx, request)
+		response, err := dispatchRequest(ctx, fetcher, request)
 		if err != nil {
 			server.sendError(message.RequestID, err.Error())
 			continue
@@ -193,8 +229,37 @@ type Client struct {
 	nextID       atomic.Uint64
 }
 
-// Fetch performs one broker request.
+// Fetch performs one broker fetch request.
 func (client *Client) Fetch(ctx context.Context, request Request) (Response, error) {
+	request.Action = ActionFetch
+	return client.do(ctx, request)
+}
+
+// Privacy returns privacy metadata for a partition.
+func (client *Client) Privacy(ctx context.Context, partition, topLevel string) (PrivacyStats, error) {
+	response, err := client.do(ctx, Request{Action: ActionPrivacy, Partition: partition, TopLevel: topLevel})
+	if err != nil {
+		return PrivacyStats{}, err
+	}
+	if response.Privacy == nil {
+		return PrivacyStats{}, fmt.Errorf("network broker: missing privacy metadata")
+	}
+	return *response.Privacy, nil
+}
+
+// ResetTrackingSession clears tracking-session state for a partition.
+func (client *Client) ResetTrackingSession(ctx context.Context, partition, topLevel string) (PrivacyStats, error) {
+	response, err := client.do(ctx, Request{Action: ActionReset, Partition: partition, TopLevel: topLevel})
+	if err != nil {
+		return PrivacyStats{}, err
+	}
+	if response.Privacy == nil {
+		return PrivacyStats{}, fmt.Errorf("network broker: missing privacy metadata")
+	}
+	return *response.Privacy, nil
+}
+
+func (client *Client) do(ctx context.Context, request Request) (Response, error) {
 	client.requestMutex.Lock()
 	defer client.requestMutex.Unlock()
 	payload, err := json.Marshal(request)
@@ -236,6 +301,68 @@ func (client *Client) Fetch(ctx context.Context, request Request) (Response, err
 			return Response{}, fmt.Errorf("network broker: %s", text)
 		}
 	}
+}
+
+func dispatchRequest(ctx context.Context, fetcher Fetcher, request Request) (Response, error) {
+	switch request.Action {
+	case "", ActionFetch:
+		return fetcher.Fetch(ctx, request)
+	case ActionPrivacy, ActionReset:
+		provider, ok := fetcher.(PrivacyProvider)
+		if !ok {
+			return Response{}, fmt.Errorf("network broker: privacy actions are unavailable")
+		}
+		var stats PrivacyStats
+		if request.Action == ActionReset {
+			stats = provider.ResetTrackingSession(request.Partition, request.TopLevel)
+		} else {
+			stats = provider.Privacy(request.Partition, request.TopLevel)
+		}
+		return Response{Status: 200, Privacy: &stats}, nil
+	default:
+		return Response{}, fmt.Errorf("network broker: unknown action %q", request.Action)
+	}
+}
+
+// Privacy returns the current privacy state for a partition.
+func (fetcher HTTPFetcher) Privacy(partition, topLevel string) PrivacyStats {
+	if partition == "" {
+		partition = "default"
+	}
+	if topLevel == "" {
+		topLevel = partition
+	}
+	stats := PrivacyStats{Partition: partition, TopLevel: topLevel}
+	if fetcher.Jar != nil {
+		stats.CookieCount = len(fetcher.Jar.All(partition))
+	}
+	if fetcher.Session != nil {
+		stats.ThirdPartyHosts = fetcher.Session.Graph().ClearableHosts(topLevel)
+	}
+	if fetcher.Cache != nil {
+		stats.CacheEntries = fetcher.Cache.Count(partition)
+	}
+	return stats
+}
+
+// ResetTrackingSession clears tracking-session state for a partition.
+func (fetcher HTTPFetcher) ResetTrackingSession(partition, topLevel string) PrivacyStats {
+	if partition == "" {
+		partition = "default"
+	}
+	if topLevel == "" {
+		topLevel = partition
+	}
+	resetCookies := 0
+	if fetcher.Session != nil {
+		resetCookies = fetcher.Session.ResetTrackingSession(partition, topLevel, time.Now())
+	}
+	if fetcher.Cache != nil {
+		fetcher.Cache.ClearPartition(partition)
+	}
+	stats := fetcher.Privacy(partition, topLevel)
+	stats.ResetCookies = resetCookies
+	return stats
 }
 
 func tokensEqual(first, second ipc.Capability) bool {

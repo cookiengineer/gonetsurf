@@ -5,24 +5,23 @@ package reftest
 import (
 	"fmt"
 
-	"gonetsurf/dom"
+	"gonetsurf/adapters"
 	"gonetsurf/internal/pixeltest"
-	"gonetsurf/parsers/css/cssom"
 	"gonetsurf/parsers/html"
 	"gonetsurf/rendering"
 	"gonetsurf/rendering/fonts"
-	"gonetsurf/styles"
 	"gonetsurf/urls"
 )
 
 // Options configures a reftest render.
 type Options struct {
-	Width        int
-	Height       int
-	Images       rendering.ImageProvider
-	LoadFont     fonts.Loader
-	Tolerance    uint8
-	MaxDifferent int
+	Width          int
+	Height         int
+	Images         rendering.ImageProvider
+	LoadFont       fonts.Loader
+	LoadStylesheet func(*urls.URL) ([]byte, error)
+	Tolerance      uint8
+	MaxDifferent   int
 }
 
 func (options Options) normalized() Options {
@@ -45,13 +44,8 @@ func Render(source []byte, base *urls.URL, options Options) (*rendering.Surface,
 	if err != nil {
 		return nil, err
 	}
-	engine := styles.NewEngine(document)
-	document.Node.Descendants(func(node *dom.Node) bool {
-		if node.Type == dom.ElementNode && node.Data == "style" {
-			engine.AddStylesheet(cssom.Parse(node.TextContent()))
-		}
-		return true
-	})
+	loader := adapters.StylesheetLoader{Fetch: options.LoadStylesheet}
+	engine := loader.Engine(document, base)
 	surface := rendering.RenderDocumentWithOptions(document, engine, options.Width, options.Height, rendering.Options{
 		Images:   options.Images,
 		LoadFont: options.LoadFont,

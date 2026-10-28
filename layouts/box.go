@@ -193,7 +193,7 @@ func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, inherited *
 	if style == nil {
 		return nil
 	}
-	display := strings.ToLower(strings.TrimSpace(style.GetString("display")))
+	display := normalizeDisplay(style.GetString("display"))
 	if display == "" {
 		display = "inline"
 	}
@@ -238,13 +238,74 @@ func buildNode(node *dom.Node, computed map[*dom.Node]*styles.Style, inherited *
 }
 
 func isInlineDisplay(display string) bool {
-	switch display {
+	switch normalizeDisplay(display) {
 	case "inline", "inline-block", "inline-flex", "inline-grid", "inline-table",
 		"ruby", "ruby-base", "ruby-text", "ruby-base-container", "ruby-text-container":
 		return true
 	default:
 		return false
 	}
+}
+
+// normalizeDisplay converts the CSS Display 3 multi-keyword forms into the
+// legacy single-keyword values used by the layout engine.
+func normalizeDisplay(display string) string {
+	tokens := strings.Fields(strings.ToLower(strings.TrimSpace(display)))
+	if len(tokens) == 0 {
+		return ""
+	}
+	if len(tokens) == 1 {
+		return tokens[0]
+	}
+	outsideInline := false
+	inside := "flow"
+	flowRoot := false
+	for _, token := range tokens {
+		switch token {
+		case "inline":
+			outsideInline = true
+		case "block":
+		case "flow-root":
+			flowRoot = true
+		case "flex", "grid", "table", "ruby":
+			inside = token
+		case "inline-flex", "inline-grid", "inline-table", "inline-block":
+			outsideInline = true
+			switch token {
+			case "inline-flex":
+				inside = "flex"
+			case "inline-grid":
+				inside = "grid"
+			case "inline-table":
+				inside = "table"
+			case "inline-block":
+				return "inline-block"
+			}
+		}
+	}
+	if outsideInline {
+		switch inside {
+		case "flex":
+			return "inline-flex"
+		case "grid":
+			return "inline-grid"
+		case "table":
+			return "inline-table"
+		case "flow":
+			if flowRoot {
+				return "inline-block"
+			}
+			return "inline"
+		}
+	}
+	switch inside {
+	case "flex", "grid", "table", "ruby":
+		return inside
+	}
+	if flowRoot {
+		return "flow-root"
+	}
+	return "block"
 }
 
 func wrapAnonymous(children []*Box, style *styles.Style) []*Box {

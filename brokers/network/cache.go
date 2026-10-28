@@ -123,6 +123,36 @@ func (cache *Cache) Delete(partition, url string) {
 	}
 }
 
+// Count returns the number of cached entries in a partition.
+func (cache *Cache) Count(partition string) int {
+	if cache == nil {
+		return 0
+	}
+	cache.mutex.RLock()
+	defer cache.mutex.RUnlock()
+	count := 0
+	for key := range cache.records {
+		if key.partition == partition {
+			count++
+		}
+	}
+	return count
+}
+
+// ClearPartition removes every cached response in a partition.
+func (cache *Cache) ClearPartition(partition string) {
+	if cache == nil {
+		return
+	}
+	cache.mutex.Lock()
+	defer cache.mutex.Unlock()
+	for key := range cache.records {
+		if key.partition == partition {
+			delete(cache.records, key)
+		}
+	}
+}
+
 func cloneHeader(header map[string][]string) map[string][]string {
 	if header == nil {
 		return nil

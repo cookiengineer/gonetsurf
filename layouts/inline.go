@@ -32,9 +32,12 @@ type inlineRun struct {
 }
 
 type inlineLine struct {
-	runs  []inlineRun
-	width float64
+	runs   []inlineRun
+	width  float64
+	forced bool
 }
+
+const inlineBreakTolerance = 6.0
 
 func (layout *Layout) layoutInlineFormatting(box *Box) {
 	runs := []inlineRun{}
@@ -67,7 +70,7 @@ func (layout *Layout) layoutInlineFormatting(box *Box) {
 		}
 		cursor := box.ContentX + offset
 		justifyExtra := 0.0
-		if isJustify(box.Style) && lineIndex != lineCount-1 {
+		if isJustify(box.Style) && !line.forced && lineIndex != lineCount-1 {
 			spaces := 0
 			for _, run := range ordered {
 				if run.spaceBefore && !run.atomic {
@@ -420,6 +423,7 @@ func (layout *Layout) breakInlineLines(runs []inlineRun, available float64, wrap
 	for index := range runs {
 		run := runs[index]
 		if run.forceBreak {
+			current.forced = true
 			flush()
 			continue
 		}
@@ -427,7 +431,7 @@ func (layout *Layout) breakInlineLines(runs []inlineRun, available float64, wrap
 		if len(current.runs) > 0 && run.spaceBefore && !run.atomic {
 			space = inlineSpaceWidth(run.style)
 		}
-		if wrap && len(current.runs) > 0 && width+space+run.width > available {
+		if wrap && len(current.runs) > 0 && width+space+run.width > available+inlineBreakTolerance {
 			flush()
 			space = 0
 		}
@@ -471,8 +475,21 @@ func (layout *Layout) inlineLineMetrics(style *styles.Style, runs []inlineRun) (
 		if run.lineHeight > lineHeight {
 			lineHeight = run.lineHeight
 		}
-		if run.ascent > ascent {
-			ascent = run.ascent
+		runAscent := run.ascent
+		switch inlineVerticalAlign(run.style) {
+		case "middle":
+			fontSize := 16.0
+			if run.style != nil {
+				if value, ok := parseComputedPixels(run.style.GetString("font-size")); ok && value > 0 {
+					fontSize = value
+				}
+			}
+			runAscent = run.height/2 + fontSize*0.25
+		case "top", "bottom", "text-top", "text-bottom":
+			continue
+		}
+		if runAscent > ascent {
+			ascent = runAscent
 		}
 	}
 	if lineHeight <= 0 {

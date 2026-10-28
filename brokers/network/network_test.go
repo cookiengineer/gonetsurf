@@ -128,3 +128,45 @@ func TestHTTPFetcherCache(t *testing.T) {
 		t.Errorf("requests after partition change = %d, want 3", requests)
 	}
 }
+
+func TestBrokerPrivacyStatsAndReset(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.SetCookie(writer, &http.Cookie{Name: "tracker", Value: "abc", Path: "/"})
+		writer.Header().Set("Cache-Control", "max-age=60")
+		writer.Write([]byte("privacy"))
+	}))
+	defer server.Close()
+	jar := cookies.NewJar()
+	fetcher := HTTPFetcher{Jar: jar, Cache: NewCache(), Session: cookies.NewSessionManager(jar)}
+	token, _ := ipc.NewCapability()
+	serverSide, clientSide := net.Pipe()
+	defer serverSide.Close()
+	defer clientSide.Close()
+	broker := &Server{Conn: ipc.NewConn(serverSide), Token: token, Fetcher: fetcher}
+	go broker.Serve(context.Background())
+	client := &Client{Conn: ipc.NewConn(clientSide), Token: token}
+	if _, err := client.Fetch(context.Background(), Request{URL: server.URL, Partition: "site", TopLevel: "site"}); err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.Fetch(context.Background(), Request{URL: server.URL, Partition: "site", TopLevel: "site"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !second.FromCache {
+		t.Error("second response was not marked as cached")
+	}
+	stats, err := client.Privacy(context.Background(), "site", "site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.CookieCount != 1 || stats.CacheEntries != 1 || len(stats.ThirdPartyHosts) == 0 {
+		t.Errorf("stats = %#v", stats)
+	}
+	reset, err := client.ResetTrackingSession(context.Background(), "site", "site")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reset.ResetCookies == 0 || reset.CookieCount != 0 || reset.CacheEntries != 0 {
+		t.Errorf("reset = %#v", reset)
+	}
+}

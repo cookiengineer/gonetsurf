@@ -24,7 +24,7 @@ type flexItem struct {
 // isFlexContainer reports whether display establishes a flex formatting
 // context.
 func isFlexContainer(box *Box) bool {
-	display := strings.ToLower(strings.TrimSpace(box.Style.GetString("display")))
+	display := displayOf(box)
 	return display == "flex" || display == "inline-flex"
 }
 
@@ -90,7 +90,7 @@ func (layout *Layout) layoutFlex(box *Box) {
 				used += item.mainSize + item.margin
 			}
 			offset, spacing := justifyOffsets(strings.ToLower(strings.TrimSpace(box.Style.GetString("justify-content"))), mainSize-used, len(line))
-			lineHeight := layout.layoutFlexRowLine(box, line, offset, spacing, mainGap, lineY)
+			lineHeight := layout.layoutFlexRowLine(box, line, offset, spacing, mainGap, lineY, 0)
 			lineY += lineHeight
 		}
 		contentHeight := lineY - box.ContentY
@@ -134,7 +134,11 @@ func (layout *Layout) layoutFlex(box *Box) {
 	remaining := mainSize - used
 	offset, spacing := justifyOffsets(strings.ToLower(strings.TrimSpace(box.Style.GetString("justify-content"))), remaining, len(items))
 	if row {
-		box.ContentHeight = layout.layoutFlexRowLine(box, items, offset, spacing, mainGap, box.ContentY)
+		crossSize := 0.0
+		if heightSpecified {
+			crossSize = box.ContentHeight
+		}
+		box.ContentHeight = layout.layoutFlexRowLine(box, items, offset, spacing, mainGap, box.ContentY, crossSize)
 	} else {
 		layout.layoutFlexColumnLine(box, items, offset, spacing, mainGap, box.ContentX)
 	}
@@ -190,7 +194,7 @@ func groupFlexLines(items []flexItem, mainSize, gap float64) [][]flexItem {
 	return lines
 }
 
-func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spacing, gap, startY float64) float64 {
+func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spacing, gap, startY, crossSize float64) float64 {
 	cursor := box.ContentX + offset
 	maxHeight := 0.0
 	for index := range items {
@@ -225,6 +229,9 @@ func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spac
 		}
 		cursor += item.margin + item.mainSize + gap + spacing
 	}
+	if crossSize > maxHeight {
+		maxHeight = crossSize
+	}
 	align := strings.ToLower(strings.TrimSpace(box.Style.GetString("align-items")))
 	if align == "" {
 		align = "stretch"
@@ -237,6 +244,7 @@ func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spac
 		}
 		marginTop := item.box.Margin.Top.Resolve(box.ContentWidth)
 		marginBottom := item.box.Margin.Bottom.Resolve(box.ContentWidth)
+		previousY := item.box.Y
 		switch alignSelf {
 		case "flex-end", "end":
 			item.box.Y = startY + maxHeight - marginBottom - item.box.Height
@@ -253,6 +261,11 @@ func (layout *Layout) layoutFlexRowLine(box *Box, items []flexItem, offset, spac
 		case "stretch":
 			if parseSize(item.box.Style.GetString("height")).Auto {
 				item.box.Height = maxHeight - marginTop - marginBottom
+			}
+		}
+		if deltaY := item.box.Y - previousY; deltaY != 0 {
+			for _, child := range item.box.Children {
+				shiftBox(child, 0, deltaY)
 			}
 		}
 		item.box.ContentY = item.box.Y + item.box.Border.Top.Resolve(box.ContentWidth) + item.box.Padding.Top.Resolve(box.ContentWidth)
@@ -316,11 +329,17 @@ func (layout *Layout) layoutFlexColumnLine(box *Box, items []flexItem, offset, s
 		}
 		marginLeft := item.box.Margin.Left.Resolve(box.ContentWidth)
 		marginRight := item.box.Margin.Right.Resolve(box.ContentWidth)
+		previousX := item.box.X
 		switch alignSelf {
 		case "flex-end", "end":
 			item.box.X = startX + box.ContentWidth - marginRight - item.box.Width
 		case "center":
 			item.box.X = startX + (box.ContentWidth-item.box.Width-marginLeft-marginRight)/2 + marginLeft
+		}
+		if deltaX := item.box.X - previousX; deltaX != 0 {
+			for _, child := range item.box.Children {
+				shiftBox(child, deltaX, 0)
+			}
 		}
 		item.box.ContentX = item.box.X + item.box.Border.Left.Resolve(box.ContentWidth) + item.box.Padding.Left.Resolve(box.ContentWidth)
 	}
@@ -443,7 +462,8 @@ func boxBaseline(box *Box) float64 {
 	if box == nil {
 		return 0
 	}
-	for _, child := range box.Children {
+	for index := len(box.Children) - 1; index >= 0; index-- {
+		child := box.Children[index]
 		if child.Kind == TextBox || child.Kind == InlineBox || child.Kind == AnonymousBlockBox {
 			if baseline, ok := childBaseline(child); ok {
 				return baseline - box.Y
@@ -463,8 +483,8 @@ func childBaseline(box *Box) (float64, bool) {
 	if box.Kind == TextBox {
 		return box.Y + box.Ascent, true
 	}
-	for _, child := range box.Children {
-		if baseline, ok := childBaseline(child); ok {
+	for index := len(box.Children) - 1; index >= 0; index-- {
+		if baseline, ok := childBaseline(box.Children[index]); ok {
 			return baseline, true
 		}
 	}

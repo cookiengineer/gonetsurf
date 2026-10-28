@@ -33,6 +33,10 @@ func (surface *Surface) Blit(offsetX, offsetY int, source *Surface, op Composite
 	if source == nil {
 		return
 	}
+	if op == Copy {
+		blitCopy(surface, offsetX, offsetY, source)
+		return
+	}
 	for sourceY := 0; sourceY < source.Height; sourceY++ {
 		destinationY := offsetY + sourceY
 		if destinationY < 0 || destinationY >= surface.Height {
@@ -51,6 +55,43 @@ func (surface *Surface) Blit(offsetX, offsetY int, source *Surface, op Composite
 			compositePixel(surface.Pix, destinationOffset, source.Pix, sourceOffset, op)
 		}
 	}
+}
+
+func blitCopy(surface *Surface, offsetX, offsetY int, source *Surface) {
+	minY := maxIntValue(offsetY, int(surface.clip.Y))
+	maxY := minIntValue(offsetY+source.Height, int(surface.clip.Y+surface.clip.Height), surface.Height)
+	minX := maxIntValue(offsetX, int(surface.clip.X))
+	maxX := minIntValue(offsetX+source.Width, int(surface.clip.X+surface.clip.Width), surface.Width)
+	if minX >= maxX || minY >= maxY {
+		return
+	}
+	rowBytes := (maxX - minX) * 4
+	for destinationY := minY; destinationY < maxY; destinationY++ {
+		sourceY := destinationY - offsetY
+		sourceOffset := sourceY*source.Stride + (minX-offsetX)*4
+		destinationOffset := destinationY*surface.Stride + minX*4
+		copy(surface.Pix[destinationOffset:destinationOffset+rowBytes], source.Pix[sourceOffset:sourceOffset+rowBytes])
+	}
+}
+
+func minIntValue(values ...int) int {
+	result := values[0]
+	for _, value := range values[1:] {
+		if value < result {
+			result = value
+		}
+	}
+	return result
+}
+
+func maxIntValue(values ...int) int {
+	result := values[0]
+	for _, value := range values[1:] {
+		if value > result {
+			result = value
+		}
+	}
+	return result
 }
 
 func compositePixel(destination []uint8, destinationOffset int, source []uint8, sourceOffset int, op CompositeOp) {

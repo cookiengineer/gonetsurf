@@ -36,13 +36,21 @@ and compositor/damage tracking are implemented; the headless PNG
 renderer, golden pixel harness, and reftest comparator are implemented
 (`netsurfctl render`, `netsurfctl reftest`), and a pure-Go X11 presenter opens
 rendered pages (`netsurfctl show`). Phase 7 has 12 Verified tasks and 1 Partial
-(OpenType feature/variation shaping, dependent on P10-TEXT-001). Phase 8 is implemented: X11 input, clipboard,
-MIT-SHM, tab/session model, rasterized browser chrome, and the `cmd/netsurf`
-interactive shell; P8-SHELL-002 remains Partial for full browsing-context edges.
+(OpenType feature/variation shaping, dependent on P10-TEXT-001). Phase 8 is
+complete: X11 input, clipboard, MIT-SHM, tab/session and browsing-context model,
+page scrolling, link/fragment/iframe navigation, omnibox search/autocomplete,
+tab reordering, rasterized browser chrome, the broker-backed privacy dashboard,
+and the `cmd/netsurf` interactive shell. External stylesheets and nested
+`@import` rules are loaded through `adapters`, and CSS resource URLs are
+resolved relative to their stylesheet. Real-site parity work also covers
+multi-keyword `display`, `calc()` sizing, auto-margin centering, fixed/absolute
+flex containers, clipped-overflow containment, nested scroll-container
+hit-testing, and resize-driven media/layout updates. Scroll rendering uses
+cached chrome, fonts, colors, glyph fallback, and offscreen-text culling.
 Phase 9 is complete: IPC framing/shared memory, process supervision, sandbox
 primitives, the network broker (cache/cookies + INET seccomp guard), and the
 persistent storage broker are Verified. The sandboxed `netsurf` shell fetches
-and stores everything through the broker. Totals: **96 Verified, 3 Partial,
+and stores everything through the broker. Totals: **97 Verified, 2 Partial,
 18 Planned**. Phase 10 (JavaScript/Web APIs) and the cross-cutting backlog
 remain. See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.

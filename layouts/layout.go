@@ -94,6 +94,16 @@ func (layout *Layout) layoutBlock(box *Box, containingX, containingY, containing
 	horizontalExtra := paddingLeft + paddingRight + borderLeft + borderRight
 	box.ContentWidth = layout.resolveWidth(box, containingWidth, marginLeft+marginRight, horizontalExtra)
 	box.Width = box.ContentWidth + horizontalExtra
+	remaining := containingWidth - box.Width - marginLeft - marginRight
+	switch {
+	case box.Margin.Left.Auto && box.Margin.Right.Auto && remaining > 0:
+		marginLeft = remaining / 2
+		marginRight = remaining - marginLeft
+	case box.Margin.Left.Auto && remaining > 0:
+		marginLeft = remaining
+	case box.Margin.Right.Auto && remaining > 0:
+		marginRight = remaining
+	}
 	box.X = containingX + marginLeft
 	box.ContentX = box.X + borderLeft + paddingLeft
 	verticalExtra := paddingTop + paddingBottom + borderTop + borderBottom
@@ -309,7 +319,7 @@ func (layout *Layout) canReuseChild(child *Box, parent *Box, containingY, contai
 }
 
 func establishesBlockFormattingContext(box *Box) bool {
-	display := strings.ToLower(strings.TrimSpace(box.Style.GetString("display")))
+	display := displayOf(box)
 	switch display {
 	case "flow-root", "inline-block", "inline-flex", "inline-grid", "inline-table", "table", "flex", "grid":
 		return true
@@ -401,7 +411,7 @@ func (layout *Layout) measureText(text string, style *styles.Style) (float64, fl
 
 func (layout *Layout) resolveWidth(box *Box, containingWidth, marginHorizontal, paddingBorderHorizontal float64) float64 {
 	style := box.Style
-	size := parseSize(style.GetString("width"))
+	size := parseSizeWithBase(style.GetString("width"), containingWidth, layout.ViewportWidth, layout.ViewportHeight)
 	borderBox := strings.EqualFold(strings.TrimSpace(style.GetString("box-sizing")), "border-box")
 	contentWidth := 0.0
 	switch {
@@ -513,7 +523,7 @@ func (layout *Layout) computeIntrinsicWidths(box *Box) {
 }
 
 func resolveHeight(style *styles.Style, contentHeight, containingHeight, paddingBorderVertical float64) float64 {
-	size := parseSize(style.GetString("height"))
+	size := parseSizeWithBase(style.GetString("height"), containingHeight, 0, 0)
 	borderBox := strings.EqualFold(strings.TrimSpace(style.GetString("box-sizing")), "border-box")
 	switch {
 	case size.Auto || size.Keyword != "":
@@ -539,7 +549,7 @@ func resolveHeight(style *styles.Style, contentHeight, containingHeight, padding
 // specifiedContentHeight resolves a definite height. Auto heights and keyword
 // sizes are not definite for percentage resolution in descendants.
 func (layout *Layout) specifiedContentHeight(box *Box, containingHeight, verticalExtra float64) (float64, bool) {
-	size := parseSize(box.Style.GetString("height"))
+	size := parseSizeWithBase(box.Style.GetString("height"), containingHeight, 0, 0)
 	if size.Auto || size.Keyword != "" {
 		return 0, false
 	}
@@ -554,7 +564,7 @@ func (layout *Layout) specifiedContentHeight(box *Box, containingHeight, vertica
 // resolveContentHeight resolves the used content height, including the
 // preferred height from aspect-ratio and min/max height clamping.
 func (layout *Layout) resolveContentHeight(box *Box, contentHeight, containingHeight, verticalExtra float64) float64 {
-	heightSize := parseSize(box.Style.GetString("height"))
+	heightSize := parseSizeWithBase(box.Style.GetString("height"), containingHeight, 0, 0)
 	if heightSize.Auto && box.ContentWidth > 0 {
 		if ratio, ok := parseAspectRatio(box.Style.GetString("aspect-ratio")); ok {
 			contentHeight = box.ContentWidth / ratio
@@ -567,7 +577,7 @@ func (layout *Layout) resolveContentHeight(box *Box, contentHeight, containingHe
 func (layout *Layout) clampHeight(box *Box, current, containingHeight, paddingBorderVertical float64) float64 {
 	borderBox := strings.EqualFold(strings.TrimSpace(box.Style.GetString("box-sizing")), "border-box")
 	resolve := func(text string) (float64, bool) {
-		size := parseSize(text)
+		size := parseSizeWithBase(text, containingHeight, 0, 0)
 		if size.Auto || size.Keyword != "" {
 			return 0, false
 		}
@@ -650,7 +660,7 @@ func parseRatioNumber(text string) (float64, bool) {
 }
 
 func (layout *Layout) clampSize(box *Box, text string, current, containingWidth, paddingBorder float64, borderBox, minimum bool) float64 {
-	size := parseSize(text)
+	size := parseSizeWithBase(text, containingWidth, 0, 0)
 	if size.Auto {
 		return current
 	}
@@ -681,6 +691,10 @@ func (layout *Layout) clampSize(box *Box, text string, current, containingWidth,
 }
 
 func parseSize(text string) Size {
+	return parseSizeWithBase(text, 0, 0, 0)
+}
+
+func parseSizeWithBase(text string, base, viewportWidth, viewportHeight float64) Size {
 	text = strings.TrimSpace(text)
 	if text == "" || strings.EqualFold(text, "auto") || strings.EqualFold(text, "none") {
 		return Size{Auto: true}
@@ -693,14 +707,21 @@ func parseSize(text string) Size {
 	if len(values) != 1 {
 		return Size{Auto: true}
 	}
-	if function, ok := values[0].(*parser.Function); ok && strings.EqualFold(function.Name, "fit-content") {
-		argument, ok := parseFitContentArgument(function.Value)
-		if !ok {
-			return Size{Auto: true}
+	if function, ok := values[0].(*parser.Function); ok {
+		if strings.EqualFold(function.Name, "fit-content") {
+			argument, ok := parseFitContentArgument(function.Value)
+			if !ok {
+				return Size{Auto: true}
+			}
+			argument.Keyword = "fit-content"
+			argument.FitHasArgument = true
+			return argument
 		}
-		argument.Keyword = "fit-content"
-		argument.FitHasArgument = true
-		return argument
+		if expression, ok := cssvalues.ParseMath(function); ok {
+			if value, ok := evaluateMathSize(expression, base, viewportWidth, viewportHeight); ok {
+				return Size{Value: value}
+			}
+		}
 	}
 	numeric, ok := cssvalues.ParseNumeric(values[0])
 	if !ok {
@@ -713,6 +734,103 @@ func parseSize(text string) Size {
 		return Size{Value: numeric.Number}
 	}
 	return Size{Auto: true}
+}
+
+func evaluateMathSize(expression *cssvalues.MathExpression, base, viewportWidth, viewportHeight float64) (float64, bool) {
+	if expression == nil {
+		return 0, false
+	}
+	switch expression.Kind {
+	case cssvalues.MathValue:
+		if expression.Value.Unit == "%" {
+			if base <= 0 && viewportWidth <= 0 {
+				return 0, false
+			}
+			return expression.Value.Number * base, true
+		}
+		if expression.Value.Kind == cssvalues.Length {
+			return cssvalues.ToPixels(expression.Value, viewportWidth, viewportHeight)
+		}
+		if expression.Value.Kind == cssvalues.Other && expression.Value.Unit == "" {
+			return expression.Value.Number, true
+		}
+		return 0, false
+	case cssvalues.MathSum:
+		left, ok := evaluateMathSize(expression.Left, base, viewportWidth, viewportHeight)
+		if !ok {
+			return 0, false
+		}
+		right, ok := evaluateMathSize(expression.Right, base, viewportWidth, viewportHeight)
+		if !ok {
+			return 0, false
+		}
+		if expression.Subtract {
+			return left - right, true
+		}
+		return left + right, true
+	case cssvalues.MathProduct:
+		left, ok := evaluateMathSize(expression.Left, base, viewportWidth, viewportHeight)
+		if !ok {
+			return 0, false
+		}
+		right, ok := evaluateMathSize(expression.Right, base, viewportWidth, viewportHeight)
+		if !ok {
+			return 0, false
+		}
+		if expression.Divide {
+			if right == 0 {
+				return 0, false
+			}
+			return left / right, true
+		}
+		return left * right, true
+	case cssvalues.MathFunction:
+		arguments := make([]float64, len(expression.Args))
+		for index, argument := range expression.Args {
+			value, ok := evaluateMathSize(argument, base, viewportWidth, viewportHeight)
+			if !ok {
+				return 0, false
+			}
+			arguments[index] = value
+		}
+		switch strings.ToLower(expression.Name) {
+		case "min":
+			if len(arguments) == 0 {
+				return 0, false
+			}
+			result := arguments[0]
+			for _, value := range arguments[1:] {
+				if value < result {
+					result = value
+				}
+			}
+			return result, true
+		case "max":
+			if len(arguments) == 0 {
+				return 0, false
+			}
+			result := arguments[0]
+			for _, value := range arguments[1:] {
+				if value > result {
+					result = value
+				}
+			}
+			return result, true
+		case "clamp":
+			if len(arguments) != 3 {
+				return 0, false
+			}
+			result := arguments[2]
+			if result < arguments[0] {
+				result = arguments[0]
+			}
+			if result > arguments[1] {
+				result = arguments[1]
+			}
+			return result, true
+		}
+	}
+	return 0, false
 }
 
 func parseFitContentArgument(values []parser.ComponentValue) (Size, bool) {
@@ -845,17 +963,26 @@ func (layout *Layout) layoutOutOfFlow(box *Box, containingX, containingY, contai
 	box.ContentX = box.X + borderLeft + paddingLeft
 	box.ContentY = box.Y + borderTop + paddingTop
 
-	hasBlockChildren := false
-	for _, child := range box.Children {
-		if child.IsBlockLevel() {
-			hasBlockChildren = true
-			break
-		}
-	}
-	if hasBlockChildren {
-		layout.layoutBlockChildren(box, false, false, 0)
+	if isGridContainer(box) {
+		layout.layoutGrid(box)
+	} else if isTableContainer(box) {
+		layout.layoutTable(box)
+	} else if isFlexContainer(box) {
+		box.ContentHeight = layout.resolveContentHeight(box, box.ContentHeight, containingHeight, verticalExtra)
+		layout.layoutFlex(box)
 	} else {
-		layout.layoutInlineChildren(box)
+		hasBlockChildren := false
+		for _, child := range box.Children {
+			if child.IsBlockLevel() {
+				hasBlockChildren = true
+				break
+			}
+		}
+		if hasBlockChildren {
+			layout.layoutBlockChildren(box, false, false, 0)
+		} else {
+			layout.layoutInlineChildren(box)
+		}
 	}
 	contentHeight := box.ContentHeight
 	if heightSize.Auto && !top.Auto && !bottom.Auto {
@@ -940,6 +1067,12 @@ func (layout *Layout) computeOverflow(box *Box) (float64, float64) {
 	maxBottom := box.ContentY + box.ContentHeight
 	for _, child := range box.Children {
 		childRight, childBottom := layout.computeOverflow(child)
+		if child.ClipX {
+			childRight = child.X + child.Width
+		}
+		if child.ClipY {
+			childBottom = child.Y + child.Height
+		}
 		if right := child.X + child.Width; right > maxRight {
 			maxRight = right
 		}

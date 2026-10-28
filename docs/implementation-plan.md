@@ -30,10 +30,16 @@ work.
 > reftest runner are implemented (`netsurfctl render`, `netsurfctl reftest`),
 > and the X11 shell renders interactive pages (`netsurf show`).
 > Phase 7 has 12 tasks Verified and 1 Partial (OpenType feature/variation
-> shaping, dependent on P10-TEXT-001). Phase 8
-> is implemented: X11 input, clipboard, MIT-SHM, browser tabs/session, rasterized
-> chrome, and the interactive `cmd/netsurf` shell; P8-SHELL-002 remains Partial
-> for full browsing-context edges. Phase 9 IPC framing/shared memory, process
+> shaping, dependent on P10-TEXT-001). Phase 8 is complete: X11 input,
+> clipboard, MIT-SHM, browser tabs/session and browsing-context model, page
+> scrolling, link/fragment/iframe navigation, omnibox search/autocomplete, tab
+> reordering, rasterized chrome, the privacy dashboard, and the interactive
+> `cmd/netsurf` shell. Real-site rendering work also added linked/imported
+> stylesheet loading with stylesheet-relative URL resolution, multi-keyword
+> `display`, `calc()` and auto-margin box sizing, clipped-overflow containment,
+> nested scroll-container hit-testing and painting, inline-block baselines,
+> resize-driven media/layout updates, and cached scroll rendering. Phase 9 IPC
+> framing/shared memory, process
 > supervision, sandbox primitives, the network broker (cache/cookies + INET
 > seccomp guard), and the persistent storage broker are Verified. Phase 9 is
 > complete; Phase 10 and the cross-cutting backlog remain.
