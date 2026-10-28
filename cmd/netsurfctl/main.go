@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"io"
 	"os"
 	"os/exec"
@@ -15,17 +17,21 @@ import (
 	"strings"
 
 	"gonetsurf/dom"
+	"gonetsurf/internal/reftest"
 	"gonetsurf/layouts"
 	"gonetsurf/parsers/css/cssom"
 	parsershtml "gonetsurf/parsers/html"
 	"gonetsurf/protocols/http1"
+	"gonetsurf/rendering"
+	"gonetsurf/rendering/fonts"
 	"gonetsurf/styles"
 	"gonetsurf/urls"
+	"gonetsurf/windowing/x11"
 )
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: netsurfctl <deps-check|urlparse|fetch|layout> [args]")
+		fmt.Fprintln(os.Stderr, "usage: netsurfctl <deps-check|urlparse|fetch|layout|render|show|reftest> [args]")
 		os.Exit(2)
 	}
 	switch os.Args[1] {
@@ -48,6 +54,21 @@ func main() {
 	case "layout":
 		if err := layout(os.Args[2:]); err != nil {
 			fmt.Fprintln(os.Stderr, "layout failed:", err)
+			os.Exit(1)
+		}
+	case "render":
+		if err := render(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "render failed:", err)
+			os.Exit(1)
+		}
+	case "show":
+		if err := show(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "show failed:", err)
+			os.Exit(1)
+		}
+	case "reftest":
+		if err := reftestCommand(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "reftest failed:", err)
 			os.Exit(1)
 		}
 	default:
@@ -187,6 +208,193 @@ func layout(arguments []string) error {
 	if err != nil {
 		return err
 	}
+	engine := buildStyleEngine(document)
+	root := layouts.BuildDocument(document, engine)
+	layoutContext := layouts.New(width, height)
+	layoutContext.Layout(root)
+	encoder := json.NewEncoder(os.Stdout)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(buildLayoutBox(root))
+}
+
+// render parses an HTML file or URL, lays it out, and writes the result to a
+// PNG file.
+func render(arguments []string) error {
+	if len(arguments) != 2 && len(arguments) != 4 {
+		return fmt.Errorf("usage: netsurfctl render <file|url|-> <output.png> [viewport-width viewport-height]")
+	}
+	width := 800
+	height := 600
+	if len(arguments) == 4 {
+		parsedWidth, err := strconv.Atoi(arguments[2])
+		if err != nil || parsedWidth <= 0 {
+			return fmt.Errorf("invalid viewport width %q", arguments[2])
+		}
+		parsedHeight, err := strconv.Atoi(arguments[3])
+		if err != nil || parsedHeight <= 0 {
+			return fmt.Errorf("invalid viewport height %q", arguments[3])
+		}
+		width, height = parsedWidth, parsedHeight
+	}
+	source, documentURL, err := readLayoutSource(arguments[0])
+	if err != nil {
+		return err
+	}
+	document, err := parsershtml.Parse(source, parsershtml.ParseOptions{URL: documentURL})
+	if err != nil {
+		return err
+	}
+	surface := rendering.RenderDocumentWithOptions(document, buildStyleEngine(document), width, height, documentRenderOptions(documentURL))
+	file, err := os.Create(arguments[1])
+	if err != nil {
+		return err
+	}
+	if err := png.Encode(file, surface.Image()); err != nil {
+		file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+// show renders an HTML file or URL into an X11 window and runs its event loop.
+func show(arguments []string) error {
+	if len(arguments) != 1 && len(arguments) != 3 {
+		return fmt.Errorf("usage: netsurfctl show <file|url|-> [viewport-width viewport-height]")
+	}
+	width := 800
+	height := 600
+	if len(arguments) == 3 {
+		parsedWidth, err := strconv.Atoi(arguments[1])
+		if err != nil || parsedWidth <= 0 {
+			return fmt.Errorf("invalid viewport width %q", arguments[1])
+		}
+		parsedHeight, err := strconv.Atoi(arguments[2])
+		if err != nil || parsedHeight <= 0 {
+			return fmt.Errorf("invalid viewport height %q", arguments[2])
+		}
+		width, height = parsedWidth, parsedHeight
+	}
+	source, documentURL, err := readLayoutSource(arguments[0])
+	if err != nil {
+		return err
+	}
+	document, err := parsershtml.Parse(source, parsershtml.ParseOptions{URL: documentURL})
+	if err != nil {
+		return err
+	}
+	engine := buildStyleEngine(document)
+	options := documentRenderOptions(documentURL)
+	surface := rendering.RenderDocumentWithOptions(document, engine, width, height, options)
+	title := "gonetsurf: " + arguments[0]
+	if documentURL != nil {
+		title = "gonetsurf: " + documentURL.String()
+	}
+	display := x11.New(x11.Options{Width: width, Height: height, Title: title})
+	opened, err := display.Open()
+	if err != nil {
+		return err
+	}
+	defer display.Close()
+	window, ok := opened.(*x11.Window)
+	if !ok {
+		return fmt.Errorf("unexpected window implementation")
+	}
+	window.SetResizeHandler(func(width, height int) {
+		rendered := rendering.RenderDocumentWithOptions(document, engine, width, height, options)
+		window.Surface().Blit(0, 0, rendered, rendering.Copy)
+		window.Present(image.Rect(0, 0, width, height))
+	})
+	window.Surface().Blit(0, 0, surface, rendering.Copy)
+	if err := window.Present(image.Rect(0, 0, width, height)); err != nil {
+		return err
+	}
+	return display.EventLoop(context.Background())
+}
+
+func reftestCommand(arguments []string) error {
+	if len(arguments) != 2 && len(arguments) != 4 {
+		return fmt.Errorf("usage: netsurfctl reftest <test|url|-> <reference|url|-> [viewport-width viewport-height]")
+	}
+	width := 800
+	height := 600
+	if len(arguments) == 4 {
+		parsedWidth, err := strconv.Atoi(arguments[2])
+		if err != nil || parsedWidth <= 0 {
+			return fmt.Errorf("invalid viewport width %q", arguments[2])
+		}
+		parsedHeight, err := strconv.Atoi(arguments[3])
+		if err != nil || parsedHeight <= 0 {
+			return fmt.Errorf("invalid viewport height %q", arguments[3])
+		}
+		width, height = parsedWidth, parsedHeight
+	}
+	testSource, testURL, err := readLayoutSource(arguments[0])
+	if err != nil {
+		return err
+	}
+	referenceSource, referenceURL, err := readLayoutSource(arguments[1])
+	if err != nil {
+		return err
+	}
+	baseURL := testURL
+	if baseURL == nil {
+		baseURL = referenceURL
+	}
+	options := reftest.Options{
+		Width:     width,
+		Height:    height,
+		Images:    documentImageProvider(baseURL),
+		LoadFont:  documentFontLoader(),
+		Tolerance: 0,
+	}
+	result, err := reftest.Compare(testSource, referenceSource, baseURL, options)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("reftest: %s\n", result)
+	if result.Different != 0 {
+		return fmt.Errorf("reftest mismatch")
+	}
+	return nil
+}
+
+func documentFontLoader() fonts.Loader {
+	return func(resource string) ([]byte, error) {
+		status, body, err := fetchBody(resource)
+		if err != nil {
+			return nil, err
+		}
+		if status < 200 || status >= 300 {
+			return nil, fmt.Errorf("font fetch returned status %d", status)
+		}
+		return body, nil
+	}
+}
+
+func documentRenderOptions(documentURL *urls.URL) rendering.Options {
+	return rendering.Options{
+		Images:   documentImageProvider(documentURL),
+		LoadFont: documentFontLoader(),
+	}
+}
+
+func documentImageProvider(documentURL *urls.URL) rendering.ImageProvider {
+	return rendering.URLImageProvider{
+		Base: documentURL,
+		Fetch: func(resource string) ([]byte, error) {
+			status, body, err := fetchBody(resource)
+			if err != nil {
+				return nil, err
+			}
+			if status < 200 || status >= 300 {
+				return nil, fmt.Errorf("image fetch returned status %d", status)
+			}
+			return body, nil
+		},
+	}
+}
+
+func buildStyleEngine(document *dom.Document) *styles.Engine {
 	engine := styles.NewEngine(document)
 	document.Node.Descendants(func(node *dom.Node) bool {
 		if node.Type != dom.ElementNode || node.Namespace != dom.NamespaceHTML || !strings.EqualFold(node.Data, "style") {
@@ -195,12 +403,7 @@ func layout(arguments []string) error {
 		engine.AddStylesheet(cssom.Parse(node.TextContent()))
 		return true
 	})
-	root := layouts.BuildDocument(document, engine)
-	layoutContext := layouts.New(width, height)
-	layoutContext.Layout(root)
-	encoder := json.NewEncoder(os.Stdout)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(buildLayoutBox(root))
+	return engine
 }
 
 func readLayoutSource(source string) ([]byte, *urls.URL, error) {
