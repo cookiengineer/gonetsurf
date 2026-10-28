@@ -27,14 +27,14 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 3 | HTML parsing (`x/net/html`) + `dom` | **Done** (6/6 Verified) |
 | 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Done** (14/14 Verified) |
 | 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
-| 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (11 Verified, 3 Partial for Phase 7 paint/font residuals) |
+| 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (14/14 Verified) |
 | 7 | Paint/fonts/images/color | **Done** (10 Verified, 3 Partial with recorded dependencies; no Planned tasks) |
 | 8 | X11 window/UI shell | **Done** (5 Verified, 1 Partial for full browsing-context edges) |
 | 9 | Process sandbox/brokers | **Done** (6/6 Verified) |
 | 10 | JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **91 Verified, 8 Implemented/Partial, 18 Planned, 0 Blocked**. There are no open
+Totals: **94 Verified, 5 Implemented/Partial, 18 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is now an interactive browser executable: `go run ./cmd/netsurf [url]` opens an
@@ -298,13 +298,11 @@ These are intentional, tracked gaps rather than surprises:
   implemented. Layout-specific used values are handled by `layouts`; percentage
   resolution against containing blocks, intrinsic sizing, and text metrics are present
   but several layout refinements remain partial.
-- **Layout semantics are verified; three tasks retain Phase 7 residuals.**
-  P6-LAYOUT-007/012/013 remain `Partial` because sticky paint integration, real
-  font-file rasterization, and scrollbar painting belong to Phase 7. The layout
-  side implements sticky scroll-clamped offsets, generic-family metrics with
-  pair kerning, and scrollbar-aware scrollports. Full pixel reftests still need
-  the Phase 7 renderer; the current 35-case geometry harness is the layout
-  baseline.
+- **Layout is fully verified against the geometry harness and paint integration.**
+  Sticky positioning is applied during paint with scroll-container offsets,
+  scroll containers paint track/thumb scrollbars, and text uses the real
+  font/metrics/shaper path. Full WPT reftests remain unvendored; the 35-case
+  geometry harness plus sticky/scrollbar paint tests are the current baseline.
 - **Incremental restyle is conservative.** Dirty nodes restyle their parent subtree;
   stylesheets using `:has()` trigger a full restyle because descendant changes can
   invalidate ancestors. Selector indexes are rebuilt on restyle.

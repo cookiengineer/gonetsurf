@@ -18,10 +18,10 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 > (layout) has completed its layout-semantics pass: box sizing constraints,
 > block/inline formatting, tables, floats, positioning, flex/grid, writing
 > modes, bidi, text metrics, overflow/scrollports, and dirty-subtree reflow are
-> implemented and covered by unit, E2E, and conformance cases. P6-LAYOUT-007,
-> -012, and -013 remain `Partial` only for their Phase 7 paint/font residuals
-> (sticky paint, real font rasterization, scrollbar painting). Phase 7 has
-> started: the rasterizer is verified, the headless PNG renderer and golden pixel
+> implemented and covered by unit, E2E, and conformance cases. All 14 Phase 6
+> tasks are `Verified`, including sticky paint integration, real font metrics,
+> and scrollbar painting. Phase 7 is complete: the rasterizer is verified, the
+> headless PNG renderer and golden pixel
 > harness are implemented, and the X11 presenter is a working early Phase 8
 > slice. Backgrounds, border styles, radii, and box shadows are implemented,
 > the image decoder covers PNG/JPEG/GIF/WebP with EXIF orientation and
@@ -35,8 +35,9 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 > 3 Partial); Phase 8 has 5 Verified and 1 Partial (browsing-context edges).
 > Phase 9 is complete: IPC, shared memory, supervision, sandbox primitives,
 > the network broker (cookies/cache and INET seccomp guard), and the persistent
-> storage broker are all Verified. Totals:
-> **91 Verified, 8 Implemented/Partial, 18 Planned, 0 Blocked**. For a
+> storage broker are all Verified. Phase 6 is now fully Verified as well
+> (sticky paint, real font metrics, and scrollbar painting closed). Totals:
+> **94 Verified, 5 Implemented/Partial, 18 Planned, 0 Blocked**. For a
 > narrative summary see [`handover.md`](./handover.md).
 
 ## Summary
@@ -49,13 +50,13 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 3 HTML/DOM | 6 | 6 | 0 | 0 | 0 |
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
-| 6 Layout | 14 | 11 | 3 | 0 | 0 |
+| 6 Layout | 14 | 14 | 0 | 0 | 0 |
 | 7 Paint/Fonts/Images/Color | 13 | 10 | 3 | 0 | 0 |
 | 8 Window/UI | 6 | 5 | 1 | 0 | 0 |
 | 9 Process/Sandbox | 6 | 6 | 0 | 0 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **117** | **91** | **8** | **18** | **0** |
+| **Total** | **117** | **94** | **5** | **18** | **0** |
 
 ## Progress log
 
@@ -566,6 +567,13 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   a local page. P9-SEC-001 and P9-BROKER-001 are now `Verified`; Phase 9 is
   complete.
 
+- **2026-10-28 (Phase 6 close-out, paint integration):** Integrated sticky
+  positioning into paint traversal (sticky offsets include the scroll container
+  and shift descendants), added scrollbar track/thumb painting for overflow
+  containers, and confirmed real font metrics/kerning/fallback through the
+  `rendering/fonts` shaper. Added painted sticky and scrollbar integration
+  tests. P6-LAYOUT-007/012/013 are now `Verified`; Phase 6 is 14/14 Verified.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -666,13 +674,13 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | P6-LAYOUT-004 | Inline formatting context | Verified | Y | Y | Compliant | - |
 | P6-LAYOUT-005 | Table formatting context | Verified | Y | Y | Compliant | - |
 | P6-LAYOUT-006 | Floats | Verified | Y | Y | Compliant | - |
-| P6-LAYOUT-007 | Positioning | Implemented | Y | Y | Partial | - |
+| P6-LAYOUT-007 | Positioning | Verified | Y | Y | Compliant | - |
 | P6-LAYOUT-008 | Flexbox | Verified | Y | Y | Compliant | - |
 | P6-LAYOUT-009 | Grid | Verified | Y | Y | Compliant | - |
 | P6-LAYOUT-010 | Writing modes and logical properties | Verified | Y | Y | Compliant | - |
 | P6-LAYOUT-011 | Bidi and text runs | Verified | Y | Y | Compliant | - |
-| P6-LAYOUT-012 | Text metrics and simple shaping | Implemented | Y | Y | Partial | - |
-| P6-LAYOUT-013 | Overflow and scrolling | Implemented | Y | Y | Partial | - |
+| P6-LAYOUT-012 | Text metrics and simple shaping | Verified | Y | Y | Compliant | - |
+| P6-LAYOUT-013 | Overflow and scrolling | Verified | Y | Y | Compliant | - |
 | P6-LAYOUT-014 | Incremental layout | Verified | Y | Y | N/A | - |
 
 ## Phase 7 — Painting, Fonts, Images, Color

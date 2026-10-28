@@ -430,6 +430,11 @@ func (box *Box) ScrollportHeight() float64 {
 	return box.ContentHeight
 }
 
+// ScrollContainer returns the nearest ancestor scroll container, or nil.
+func (box *Box) ScrollContainer() *Box {
+	return box.scrollContainer()
+}
+
 // StickyOffset returns the visual position of a sticky box for a scroll
 // container offset. Non-sticky boxes return their layout position.
 func (box *Box) StickyOffset(scrollX, scrollY float64) (float64, float64) {

@@ -40,12 +40,11 @@ func (painter *Painter) paintStackingContextWithEffects(box *layouts.Box, surfac
 		return
 	}
 
-	xPos := box.X + offsetX
-	yPos := box.Y + offsetY
+	xPos, yPos, deltaX, deltaY := paintOrigin(box, offsetX, offsetY)
 	painter.paintDecorations(box, surface, xPos, yPos)
 
-	childOffsetX := offsetX - box.ScrollLeft
-	childOffsetY := offsetY - box.ScrollTop
+	childOffsetX := offsetX - box.ScrollLeft + deltaX
+	childOffsetY := offsetY - box.ScrollTop + deltaY
 
 	clip := surface.Clip()
 	hasClip := true
@@ -74,6 +73,7 @@ func (painter *Painter) paintStackingContextWithEffects(box *layouts.Box, surfac
 			painter.paintStackingEntry(surface, entry)
 		}
 	}
+	painter.paintScrollbars(box, surface, xPos, yPos)
 }
 
 func (painter *Painter) paintStackingEntry(surface *Surface, entry stackingEntry) {
@@ -105,14 +105,31 @@ func (painter *Painter) paintContent(box *layouts.Box, surface *Surface, offsetX
 		if isStackingContext(child) || isPositioned(child) {
 			continue
 		}
-		xPos := child.X + childOffsetX
-		yPos := child.Y + childOffsetY
+		xPos, yPos, deltaX, deltaY := paintOrigin(child, childOffsetX, childOffsetY)
 		painter.paintDecorations(child, surface, xPos, yPos)
-		painter.paintContent(child, surface, childOffsetX, childOffsetY)
+		painter.paintContent(child, surface, childOffsetX+deltaX, childOffsetY+deltaY)
+		painter.paintScrollbars(child, surface, xPos, yPos)
 	}
 	if clipChanged {
 		surface.SetClip(previousClip)
 	}
+}
+
+func paintOrigin(box *layouts.Box, offsetX, offsetY float64) (float64, float64, float64, float64) {
+	xPos := box.X + offsetX
+	yPos := box.Y + offsetY
+	if box.Style == nil || !strings.EqualFold(strings.TrimSpace(box.Style.GetString("position")), "sticky") {
+		return xPos, yPos, 0, 0
+	}
+	container := box.ScrollContainer()
+	if container == nil {
+		return xPos, yPos, 0, 0
+	}
+	stickyX, stickyY := box.StickyOffset(container.ScrollLeft, container.ScrollTop)
+	return stickyX + offsetX + container.ScrollLeft,
+		stickyY + offsetY + container.ScrollTop,
+		stickyX - box.X,
+		stickyY - box.Y
 }
 
 func (painter *Painter) paintDecorations(box *layouts.Box, surface *Surface, xPos, yPos float64) {

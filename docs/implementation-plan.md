@@ -19,8 +19,8 @@ work.
 > line-level bidi, floats with clearance, padding-box positioning and sticky offsets,
 > vertical writing modes and logical properties, generic-family text metrics with pair
 > kerning, scrollbar-aware overflow, and dirty-subtree reflow with clean-subtree reuse
-> are implemented. Eleven Phase 6 tasks are `Verified`; P6-LAYOUT-007/012/013 remain
-> `Partial` only for Phase 7 paint/font artifacts. A 35-case geometry conformance
+> are implemented. All 14 Phase 6 tasks are `Verified`, including sticky paint
+> integration, real font metrics/shaping, and scrollbar painting. A 35-case geometry conformance
 > harness and `netsurfctl layout` cover the pipeline. Phase 7 has started: the
 > `rendering` rasterizer is `Verified`, backgrounds/borders/radii/shadows,
 > PNG/JPEG/GIF/WebP image decoding, Color 4 conversions, linear/radial/conic
