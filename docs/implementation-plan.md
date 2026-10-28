@@ -10,8 +10,11 @@ work.
 > properties; the stable WPT value corpus reports 2,520 passes, 0 failures, and 260
 > documented skips, and the selector parsing suite has 0 failures with 78 tentative-feature
 > skips. CSSOM, cascade/variables, conditional rules, media queries, animations, and nesting
-> have unit and Go-native conformance tests. Phase 5 (style resolution) is next. See
-> [`handover.md`](./handover.md) for the status and gaps.
+> have unit and Go-native conformance tests. Phase 5 (style resolution) is complete with
+> all 6 tasks `Verified`: indexed selector matching, UA stylesheet, presentational hints,
+> cascade/inheritance, custom properties, computed values, conditionals, and incremental
+> restyle. Phase 6 (layout) is next. See [`handover.md`](./handover.md) for the status and
+> gaps.
 
 ## How to read a task
 

@@ -3,9 +3,9 @@
 > **Status:** this document describes the target architecture. For what is actually
 > implemented today, what is partial, and where to start, see
 > [`handover.md`](./handover.md). As of 2026-10-28 the implemented packages include the
-> URL, encoding, HTML-parsing/`dom`, HTTP/TLS/DNS, cache, cookie, and Phase 4 CSS
-> parser/CSSOM layers; style resolution (`styles`), layout, rendering, windowing, and
-> JavaScript remain design targets.
+> URL, encoding, HTML-parsing/`dom`, HTTP/TLS/DNS, cache, cookie, Phase 4 CSS
+> parser/CSSOM layers, and the Phase 5 `styles` engine; layout, rendering, windowing,
+> and JavaScript remain design targets.
 
 ## 1. Scope
 

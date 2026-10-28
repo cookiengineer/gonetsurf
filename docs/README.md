@@ -15,9 +15,12 @@ rules, media queries, properties, animations, and nesting all exist, and **Phase
 complete** with all 14 tasks `Verified`. That includes the generated 353-property registry,
 the stable WPT value corpus (2,520 passes, 0 failures, 260 documented skips), selectors
 (0 failures, 78 tentative-feature skips), CSSOM, cascade/variables (`all`, `var()`,
-cycles, `revert`), conditional rules, media queries, animations, and nesting. Phase 5
-(style resolution) is next. See [`handover.md`](./handover.md) for the full handover and
-[`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
+cycles, `revert`), conditional rules, media queries, animations, and nesting. **Phase 5
+(style resolution) is complete**: indexed selector matching, the UA stylesheet,
+presentational hints, cascade/inheritance, custom properties, relative-unit and
+per-property computed values, conditional integration, and incremental restyle are all
+implemented and tested. Phase 6 (layout) is next. See [`handover.md`](./handover.md) for
+the full handover and [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 
 ## Documents
 

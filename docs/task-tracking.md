@@ -33,14 +33,14 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 2 Network/Cookies/Cache | 19 | 18 | 1 | 0 | 0 |
 | 3 HTML/DOM | 6 | 6 | 0 | 0 | 0 |
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
-| 5 Style | 6 | 0 | 0 | 6 | 0 |
+| 5 Style | 6 | 6 | 0 | 0 | 0 |
 | 6 Layout | 14 | 0 | 0 | 14 | 0 |
 | 7 Paint/Fonts/Images/Color | 10 | 0 | 0 | 10 | 0 |
 | 8 Window/UI | 6 | 0 | 0 | 6 | 0 |
 | 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **114** | **50** | **4** | **60** | **0** |
+| **Total** | **114** | **56** | **4** | **54** | **0** |
 
 ## Progress log
 
@@ -198,6 +198,26 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   `all`, revert, and important layers. P4-CSS-008 is now `Verified`. Phase 4 is
   complete.
 
+- **2026-10-28 (Phase 5 start):** Replaced the Phase 3 selector subset with
+  the full Selectors Level 4 matcher in `dom` (namespaces, attribute operators,
+  structural/logical pseudos, `:has()` with scope handling, state/language
+  pseudos). `dom.Matches`/`QuerySelector(All)` now use the parsed selector AST.
+  Added `styles` with id/class/tag/attribute-indexed candidate selection,
+  document-order element enumeration, an embedded UA stylesheet, HTML
+  presentational hints, and a style engine that applies UA/author/inline
+  origins, nesting, `@media`, `@supports`, inheritance, `all`, and custom
+  properties/`var()`. P5-STYLE-001, -002, -004, and -005 are `Verified`;
+  P5-STYLE-003 is `Implemented` pending relative-unit and per-property
+  computed-value functions.
+
+- **2026-10-28 (Phase 5 complete):** Added relative-unit and per-property
+  computed values (font-size keywords/`em`/`rem`, font-weight bolder/lighter,
+  line-height percentages, color/`currentcolor`, opacity, border widths, and
+  generic length/angle/time conversion). Added DOM mutation versions and
+  dirty-node tracking, plus engine caching and incremental subtree restyle;
+  stylesheets using `:has()` fall back to a full restyle. P5-STYLE-003 and
+  P5-STYLE-006 are now `Verified`. Phase 5 is complete.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -281,12 +301,12 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
 |---|---|---|---|---|---|---|
-| P5-STYLE-001 | UA stylesheet and presentational hints | Planned | - | - | Unassessed | - |
-| P5-STYLE-002 | Selector matching engine | Planned | - | - | Unassessed | - |
-| P5-STYLE-003 | Computed value resolution | Planned | - | - | Unassessed | - |
-| P5-STYLE-004 | Custom properties and var() substitution | Planned | - | - | Unassessed | - |
-| P5-STYLE-005 | Media/conditional evaluation integration | Planned | - | - | Unassessed | - |
-| P5-STYLE-006 | Incremental restyle | Planned | - | - | N/A | - |
+| P5-STYLE-001 | UA stylesheet and presentational hints | Verified | Y | Y | Compliant | - |
+| P5-STYLE-002 | Selector matching engine | Verified | Y | Y | Compliant | - |
+| P5-STYLE-003 | Computed value resolution | Verified | Y | Y | Compliant | - |
+| P5-STYLE-004 | Custom properties and var() substitution | Verified | Y | Y | Compliant | - |
+| P5-STYLE-005 | Media/conditional evaluation integration | Verified | Y | Y | Compliant | - |
+| P5-STYLE-006 | Incremental restyle | Verified | Y | Y | N/A | - |
 
 ## Phase 6 — Layout
 

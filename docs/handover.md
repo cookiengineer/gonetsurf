@@ -26,10 +26,11 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 2 | HTTP/1.1, TLS, DNS, cache, cookies, SOCKS, WebSocket, internal schemes | **Done** (18 Verified, 1 Implemented/Partial) |
 | 3 | HTML parsing (`x/net/html`) + `dom` | **Done** (6/6 Verified) |
 | 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Done** (14/14 Verified) |
-| 5–10 | Style, layout, paint, window/UI, process sandbox, JS/Web APIs | **Not started** |
+| 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
+| 6–10 | Layout, paint, window/UI, process sandbox, JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **50 Verified, 4 Implemented/Partial, 60 Planned, 0 Blocked**. There are no open
+Totals: **56 Verified, 4 Implemented/Partial, 54 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is **no browser executable yet**. Phase 0–3 deliverables are the engine's
@@ -40,7 +41,7 @@ foundational libraries; the first runnable windowed browser is expected after Ph
 ```sh
 go build ./...                          # compile everything
 go vet ./...                            # static checks
-gofmt -l cmd urls parsers protocols caches storages internal dom   # formatting
+gofmt -l cmd urls parsers protocols caches storages internal dom styles   # formatting
 go test ./... -count=1                  # unit + integration tests
 go run ./cmd/netsurfctl deps-check      # enforce the no-third-party policy
 go run ./cmd/netsurfctl urlparse 'https://www.example.com:8443/a/b?x=1#f'
@@ -51,7 +52,7 @@ go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
 
 Current verification baseline:
 
-- 156 Go files across 35 packages, 59 test files, 251 test/fuzz/benchmark functions.
+- 167 Go files across 36 packages, 64 test files, 280 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -85,6 +86,20 @@ Current verification baseline:
 - Cascade/variables: custom-property inheritance, `var()` fallback/cycles, `all`,
   `revert`, and `revert-layer` pass the Go-native harness ported from WPT cascade and
   variables cases.
+- Selector matching: the full Selectors Level 4 matcher is wired into `dom.Matches`,
+  `QuerySelector`, and `QuerySelectorAll`; combinators, attributes, structural and
+  logical pseudo-classes, `:has()`, `:scope`, languages, and states are covered.
+- Style resolution: `styles.Matcher` maintains id/class/tag/attribute indexes and
+  document order; the style engine applies the embedded UA sheet, presentational
+  hints, author/inline origins, nesting, `@media`/`@supports`, inheritance, `all`,
+  and custom properties/`var()`.
+- Computed values: font-size keywords/`em`/`rem`/viewport units, font-weight
+  bolder/lighter, line-height percentages, color/`currentcolor`, opacity, border
+  widths, and generic length/angle/time conversion are tested.
+- Incremental restyle: DOM mutation versions and dirty-node tracking drive cached
+  subtree restyles; `:has()` stylesheets fall back to a full restyle.
+- Matching benchmarks: `dom` selector matching and `styles.Matcher.Elements` are
+  benchmarked; the DOM matcher also has a fuzz target.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
 - Color 4: hex, keyword, HSL, HWB, lab/lch/oklab/oklch, and `color()`
   corpora pass (**~7,300** cases).
@@ -123,6 +138,7 @@ Current verification baseline:
 | `parsers/css/animations/` | `@keyframes` and the animation shorthand. |
 | `parsers/css/nesting/` | CSS Nesting parsing and `&` resolution. |
 | `dom/` | Namespace-aware mutable DOM: nodes, documents, attributes, queries, templates, shadow scaffolding, sandbox flags. |
+| `styles/` | Indexed selector matcher, UA stylesheet, presentational hints, and the style-resolution engine. |
 | `protocols/http1/` | Custom HTTP/1.1 client: ordered headers, strict framing, chunked+trailers, pool, redirects, conditional/range. |
 | `protocols/tls/` | TLS 1.3 client config, ALPN, ECH field, GREASE values. |
 | `protocols/dns/` | DNS codec (compression), caching resolver, special-use names, DoH, DoT. |
@@ -140,8 +156,8 @@ Current verification baseline:
 | `cmd/propertygen/` | Generate the property registry from pinned specs and WPT grammar assertions. |
 
 The target layout (including not-yet-created packages such as `layouts/`, `rendering/`,
-`windowing/`, `webapis/`, `runtime/`, `brokers/`, `engines/`, `styles/`, `ipc/`,
-`farbling/`, and `javascripts/sobek/`) is described in
+`windowing/`, `webapis/`, `runtime/`, `brokers/`, `engines/`, `ipc/`, `farbling/`, and
+`javascripts/sobek/`) is described in
 [`architecture.md`](./architecture.md). Those are design targets; only the packages in the
 table above exist today.
 
@@ -154,8 +170,14 @@ These are intentional, tracked gaps rather than surprises:
   core object model but not the full IDL (constructable/adopted stylesheets, every rule
   subclass), media queries do not implement serialization or every experimental feature,
   and cascade `revert-layer` follows the common origin/layer cases rather than every
-  edge. `dom.Matches`/`QuerySelector` still uses the Phase 3 subset; wiring it to the new
-  `selectors` package is a Phase 5 task (P5-STYLE-002).
+  edge.
+- **Computed values cover the style engine's supported property set.** Font, color,
+  line-height, opacity, border widths, and generic length/angle/time conversion are
+  implemented. Layout-specific used values (percentage resolution against containing
+  blocks, intrinsic sizing, text metrics) belong to Phase 6.
+- **Incremental restyle is conservative.** Dirty nodes restyle their parent subtree;
+  stylesheets using `:has()` trigger a full restyle because descendant changes can
+  invalidate ancestors. Selector indexes are rebuilt on restyle.
 - **CSS parsing conformance corpus.** The public `css-parsing-tests` corpora target a
   pre-2021 tokenizer (match tokens such as `~=`, a `unicode-range` token, and normalized
   number representations). `cmd/corpusgen` normalizes the expected values for the pinned
@@ -219,12 +241,10 @@ Recorded in the relevant design docs under "Decisions":
 
 ## 8. Recommended next steps
 
-1. **Phase 5 — Style resolution.** Phase 4 is closed. Build the UA stylesheet and
-   presentational hints (P5-STYLE-001), wire `parsers/css/selectors` into a matching
-   engine (P5-STYLE-002), then add computed-value resolution, custom properties,
-   media/conditional integration, and incremental restyle. The cascade package already
-   exposes `ResolveWithCustom`/`ResolveChecked` for this stage.
-2. **Deepen CSS feature coverage** as Phase 5/6 need it: full CSSOM IDL surface, media
+1. **Phase 6 — Layout.** Build the box tree, block/inline/table/flex/grid formatting
+   contexts, positioning, overflow, writing modes, bidi, and text metrics using the
+   computed styles and `styles.Matcher`.
+2. **Deepen CSS feature coverage** as Phase 6/7 need it: full CSSOM IDL surface, media
    query serialization and remaining features, and cascade edge cases.
 3. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
    `protocols/tls/chrome` fork lands.
