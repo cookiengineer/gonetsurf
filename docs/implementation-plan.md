@@ -15,8 +15,8 @@ work.
 > cascade/inheritance, custom properties, computed values, conditionals, and incremental
 > restyle. Phase 6 (layout) is in progress: box-tree construction, the box model,
 > intrinsic sizing, block layout with sibling/parent-child margin collapsing, simple
-> inline line layout, relative/absolute/fixed positioning, and basic flexbox are
-> implemented. See [`handover.md`](./handover.md) for the status and gaps.
+> inline line layout, relative/absolute/fixed positioning, basic flexbox, tables, grid,
+> and floats are implemented. See [`handover.md`](./handover.md) for the status and gaps.
 
 ## How to read a task
 

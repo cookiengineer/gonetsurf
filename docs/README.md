@@ -21,8 +21,9 @@ presentational hints, cascade/inheritance, custom properties, relative-unit and
 per-property computed values, conditional integration, and incremental restyle are all
 implemented and tested. Phase 6 (layout) is in progress: the box tree, box model, intrinsic
 sizing, block layout with sibling and parent/child margin collapsing, simple inline line
-layout, relative/absolute/fixed positioning, and basic flexbox are implemented; the
-remaining formatting contexts are next. See [`handover.md`](./handover.md) for the full handover and
+layout, relative/absolute/fixed positioning, basic flexbox, tables, grid, and floats are
+implemented; sticky positioning, writing modes, bidi, overflow/scroll, and incremental
+layout are next. See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 
 ## Documents

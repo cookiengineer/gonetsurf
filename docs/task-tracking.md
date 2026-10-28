@@ -34,13 +34,13 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 3 HTML/DOM | 6 | 6 | 0 | 0 | 0 |
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
-| 6 Layout | 14 | 1 | 5 | 8 | 0 |
+| 6 Layout | 14 | 1 | 8 | 5 | 0 |
 | 7 Paint/Fonts/Images/Color | 10 | 0 | 0 | 10 | 0 |
 | 8 Window/UI | 6 | 0 | 0 | 6 | 0 |
 | 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **114** | **57** | **9** | **48** | **0** |
+| **Total** | **114** | **57** | **12** | **45** | **0** |
 
 ## Progress log
 
@@ -241,6 +241,18 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   `Implemented`/`Partial` (wrapping, baseline alignment, and full flex item
   semantics remain).
 
+- **2026-10-28 (Phase 6 tables):** Added basic table layout for `display:table`,
+  row groups, rows, and cells: intrinsic column sizing, explicit/auto table width
+  distribution, row heights, cell block/inline content layout, and geometry for
+  rows/cells. P6-LAYOUT-005 is now `Implemented`/`Partial` (border-collapse,
+  span handling, and anonymous table boxes remain).
+
+- **2026-10-28 (Phase 6 grid and floats):** Added basic grid layout
+  (`display:grid`, explicit/`repeat()` tracks, `fr` distribution, gaps,
+  auto-placement, explicit line placement, row sizing) and basic float placement
+  (left/right, shrink-to-fit widths, block avoidance). P6-LAYOUT-009 and
+  P6-LAYOUT-006 are now `Implemented`/`Partial`.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -339,11 +351,11 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | P6-LAYOUT-002 | Box model and intrinsic sizing | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-003 | Block formatting context | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-004 | Inline formatting context | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-005 | Table formatting context | Planned | - | - | Unassessed | - |
-| P6-LAYOUT-006 | Floats | Planned | - | - | Unassessed | - |
+| P6-LAYOUT-005 | Table formatting context | Implemented | Y | P | Partial | - |
+| P6-LAYOUT-006 | Floats | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-007 | Positioning | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-008 | Flexbox | Implemented | Y | P | Partial | - |
-| P6-LAYOUT-009 | Grid | Planned | - | - | Unassessed | - |
+| P6-LAYOUT-009 | Grid | Implemented | Y | P | Partial | - |
 | P6-LAYOUT-010 | Writing modes and logical properties | Planned | - | - | Unassessed | - |
 | P6-LAYOUT-011 | Bidi and text runs | Planned | - | - | Unassessed | - |
 | P6-LAYOUT-012 | Text metrics and simple shaping | Planned | - | - | Unassessed | - |
