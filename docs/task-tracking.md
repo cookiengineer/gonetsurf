@@ -14,33 +14,19 @@ This is the single source of truth for the status of every task in
 A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs=-`.
 `Spec=N/A` is allowed only for non-normative tooling.
 
-> **Current state (2026-10-28):** Phases 0–5 are complete and verified. Phase 6
-> (layout) has completed its layout-semantics pass: box sizing constraints,
-> block/inline formatting, tables, floats, positioning, flex/grid, writing
-> modes, bidi, text metrics, overflow/scrollports, and dirty-subtree reflow are
-> implemented and covered by unit, E2E, and conformance cases. All 14 Phase 6
-> tasks are `Verified`, including sticky paint integration, real font metrics,
-> and scrollbar painting. Phase 7 is complete: the rasterizer is verified, the
-> headless PNG renderer and golden pixel
-> harness are implemented, and the X11 presenter is a working early Phase 8
-> slice. Backgrounds, border styles, radii, and box shadows are implemented,
-> the image decoder covers PNG/JPEG/GIF/WebP with EXIF orientation and
-> animation metadata, color conversion covers sRGB, Display P3, Lab/LCH,
-> OKLab/OKLCH, XYZ, Adobe RGB, ProPhoto, and Rec. 2020, linear/radial/conic
-> gradients render, real fonts are matched/shaped/cached, and stacking,
-> z-order, opacity, 2D transforms, and `<img>` replaced content paint. The
-> `@font-face`, SVG, gradients, borders/images, color conversion/gamut mapping,
-> the compositor, the reftest comparator, X11 input/clipboard/SHM, and the
-> browser shell are implemented. Phase 7 has no `Planned` tasks (10 Verified,
-> 3 Partial); Phase 8 has 5 Verified and 1 Partial (browsing-context edges).
-> Phase 9 is complete: IPC, shared memory, supervision, sandbox primitives,
-> the network broker (cookies/cache and INET seccomp guard), and the persistent
-> storage broker are all Verified. Phase 6 is fully Verified; Phase 7's
-> paint/stacking task covers 3D/perspective, individual transforms, and replaced
-> content, and web-font loading now includes partitioned caching and
-> `font-display`. Totals:
-> **96 Verified, 3 Implemented/Partial, 18 Planned, 0 Blocked**. For a
-> narrative summary see [`handover.md`](./handover.md).
+> **Current state (2026-10-28):** Phases 0–6 and 9 are complete and verified.
+> Phase 7 has 12 Verified tasks and one Partial (P7-FONT-004: OpenType
+> feature/variation shaping depends on P10-TEXT-001). Phase 8 has 5 Verified
+> tasks and one Partial (P8-SHELL-002: full HTML browsing-context edges). The
+> engine now includes the full URL/encoding/HTML/DOM stack, CSS parsing and
+> cascade, style resolution, block/inline/table/flex/grid layout with sticky and
+> scrollbar paint integration, the rendering pipeline (rasterization,
+> backgrounds/borders, images, Color 4 + gamut mapping, gradients, fonts and
+> `@font-face`, SVG, stacking, 2D/3D transforms, replaced content, compositor,
+> pixel/reftest harnesses), X11 input/clipboard/MIT-SHM, the interactive
+> `cmd/netsurf` shell, and IPC/shared-memory/supervised brokers with a sandboxed
+> shell. Totals: **96 Verified, 3 Implemented/Partial, 18 Planned, 0 Blocked**.
+> For a narrative summary see [`handover.md`](./handover.md).
 
 ## Summary
 
