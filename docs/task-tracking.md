@@ -14,15 +14,15 @@ This is the single source of truth for the status of every task in
 A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs=-`.
 `Spec=N/A` is allowed only for non-normative tooling.
 
-> **Current state (2026-10-28):** Phases 0–3 are verified. Phase 4 (CSS) is
-> implemented, and Wave 1 of the conformance close-out is complete. The parser,
-> grammar engine, values/math, property registry, and fuzz/benchmark harness are
-> `Verified`. The property registry is generated from the pinned specifications
-> and WPT grammar assertions (353 properties). The stable WPT value corpus
-> (2,780 cases) reports 2,520 passes, 0 failures, and 260 documented skips.
-> The remaining Phase 4 tasks (CSSOM, cascade/variables, conditional rules, media
-> queries, animations, nesting) are `Implemented`/`Partial` and are Wave 2/3
-> work. For a narrative summary see [`handover.md`](./handover.md).
+> **Current state (2026-10-28):** Phases 0–5 are complete and verified. Phase 6
+> (layout) is fully implemented: box tree, box model, intrinsic sizing,
+> block/inline/table/flex/grid formatting, floats, positioning, logical
+> properties, vertical flow, bidi, text metrics, overflow/scroll, and a
+> mutation-versioned layout cache. P6-LAYOUT-001 is `Verified`; the other 13
+> Phase 6 tasks are `Implemented`/`Partial` pending broader reftest verification.
+> Phase 7 (painting) follows layout verification. Totals: **57 Verified, 17 Implemented/Partial,
+> 40 Planned, 0 Blocked**. For a narrative summary see
+> [`handover.md`](./handover.md).
 
 ## Summary
 
@@ -332,6 +332,11 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   `DocumentLayout` now reuses the box tree for style-only mutations, refreshes
   box styles/metrics/edges, and reruns layout; structural mutations rebuild the
   tree. True dirty-subtree reflow remains a refinement.
+
+- **2026-10-28 (Phase 6 more reftests):** Expanded the layout conformance
+  harness to 19 cases (max-width, border-box sizing, parent bottom margin
+  collapse, flex wrapping) and added mixed LTR/RTL bidi run coverage with
+  per-character visual text.
 
 ## Phase 0 — Foundations
 

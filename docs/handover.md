@@ -27,15 +27,15 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 3 | HTML parsing (`x/net/html`) + `dom` | **Done** (6/6 Verified) |
 | 4 | CSS tokenizer → parser → selectors → values → CSSOM → cascade | **Done** (14/14 Verified) |
 | 5 | Style resolution, UA sheet, selector matching, computed values | **Done** (6/6 Verified) |
-| 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Implemented** (1 Verified, 13 Implemented/Partial) |
+| 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (1 Verified, 13 Implemented/Partial) |
 | 7–10 | Paint/window/UI/process sandbox/JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
 Totals: **57 Verified, 17 Implemented/Partial, 40 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
-There is **no browser executable yet**. Phase 0–3 deliverables are the engine's
-foundational libraries; the first runnable windowed browser is expected after Phases 4–8.
+There is **no browser executable yet**. Phases 0–6 are the engine's foundational
+libraries; the first runnable windowed browser is expected after Phases 7–8.
 
 ## 3. Quick start
 
@@ -53,7 +53,7 @@ go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
 
 Current verification baseline:
 
-- 180 Go files across 37 packages, 66 test files, 313 test/fuzz/benchmark functions.
+- 180 Go files across 37 packages, 66 test files, 314 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -115,12 +115,12 @@ Current verification baseline:
   logical properties map through `writing-mode`/`direction`, basic vertical-mode
   block and inline text flow is supported, text rotation metadata is recorded, sticky boxes
   expose scroll-clamped offsets, bidi
-  text runs are segmented with basic RTL word and per-character visual ordering,
+  text runs are segmented with mixed-run, RTL word, and per-character visual ordering,
   and `DocumentLayout` reuses box trees for style-only mutations and rebuilds on
   structural changes. Shorthand expansion
   covers margin, padding, border, border components, overflow, flex, flex-flow,
-  gap, and logical edges. A 15-case layout conformance harness
-  (`layouts/testdata/cases.json`) covers the foundation scenarios.
+  gap, and logical edges. A 19-case layout conformance harness
+  (`layouts/testdata/cases.json`) passes all cases.
 - Matching benchmarks: `dom` selector matching and `styles.Matcher.Elements` are
   benchmarked; the DOM matcher also has a fuzz target.
 - An+B conformance: **128/128** cases; `<urange>`: **12/12** cases.
@@ -197,8 +197,9 @@ These are intentional, tracked gaps rather than surprises:
   edge.
 - **Computed values cover the style engine's supported property set.** Font, color,
   line-height, opacity, border widths, and generic length/angle/time conversion are
-  implemented. Layout-specific used values (percentage resolution against containing
-  blocks, intrinsic sizing, text metrics) belong to Phase 6.
+  implemented. Layout-specific used values are handled by `layouts`; percentage
+  resolution against containing blocks, intrinsic sizing, and text metrics are present
+  but several layout refinements remain partial.
 - **Layout is implemented but needs verification depth.** All 14 Phase 6 tasks are
   implemented, but several are `Partial`: column flex wrapping, full baseline metrics,
   sideways text orientation/rotation, mixed-run bidi line layout, real font
@@ -276,11 +277,11 @@ Recorded in the relevant design docs under "Decisions":
 2. **Phase 7 — Painting.** After layout verification, add rasterization, backgrounds and
    borders, images, fonts, gradients, color management, stacking/compositing, and the
    headless pixel harness.
-2. **Deepen CSS feature coverage** as Phase 6/7 need it: full CSSOM IDL surface, media
+3. **Deepen CSS feature coverage** as Phase 6/7 need it: full CSSOM IDL surface, media
    query serialization and remaining features, and cascade edge cases.
-3. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
+4. **Close the remaining Partial network task** (TLS GREASE/ECH) when the
    `protocols/tls/chrome` fork lands.
-4. **Fill the skeleton.** Create the remaining package directories with `doc.go` stubs as
+5. **Fill the skeleton.** Create the remaining package directories with `doc.go` stubs as
    their phases begin; avoid broad empty scaffolding ahead of need.
 
 ## 9. Handover checklist
