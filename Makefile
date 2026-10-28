@@ -68,6 +68,7 @@ fuzz:
 	$(GO) test ./rendering/images/ -run=^$$ -fuzz=^FuzzDecode$$ -fuzztime=$(FUZZTIME)
 	$(GO) test ./styles/ -run=^$$ -fuzz=^FuzzExpandDeclaration$$ -fuzztime=$(FUZZTIME)
 	$(GO) test ./parsers/css/colors/ -run=^$$ -fuzz=^FuzzToSRGB$$ -fuzztime=$(FUZZTIME)
+	$(GO) test ./ipc/ -run=^$$ -fuzz=^FuzzReadFrame$$ -fuzztime=$(FUZZTIME)
 
 bench:
 	$(GO) test ./parsers/css/ -run=^$$ -bench=. -benchtime=$(BENCHTIME)

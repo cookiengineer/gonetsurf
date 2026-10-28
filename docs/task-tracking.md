@@ -33,7 +33,9 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 > the compositor, the reftest comparator, X11 input/clipboard/SHM, and the
 > browser shell are implemented. Phase 7 has no `Planned` tasks (10 Verified,
 > 3 Partial); Phase 8 has 5 Verified and 1 Partial (browsing-context edges).
-> Totals: **85 Verified, 8 Implemented/Partial, 24 Planned, 0 Blocked**. For a
+> Phase 9 has IPC framing/shared memory/supervision Verified and sandbox/broker
+> primitives Implemented/Partial. Totals:
+> **88 Verified, 11 Implemented/Partial, 18 Planned, 0 Blocked**. For a
 > narrative summary see [`handover.md`](./handover.md).
 
 ## Summary
@@ -49,10 +51,10 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 6 Layout | 14 | 11 | 3 | 0 | 0 |
 | 7 Paint/Fonts/Images/Color | 13 | 10 | 3 | 0 | 0 |
 | 8 Window/UI | 6 | 5 | 1 | 0 | 0 |
-| 9 Process/Sandbox | 6 | 0 | 0 | 6 | 0 |
+| 9 Process/Sandbox | 6 | 3 | 3 | 0 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **117** | **85** | **8** | **24** | **0** |
+| **Total** | **117** | **88** | **11** | **18** | **0** |
 
 ## Progress log
 
@@ -527,6 +529,19 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   P8-SHELL-002 is `Implemented/Partial` for the full HTML browsing-context
   model (opener/iframe/same-document navigation).
 
+- **2026-10-28 (Phase 9, IPC/supervision/sandbox/brokers):** Added `ipc` versioned
+  framing with request IDs, cancellation, capability tokens, a fuzz target, and
+  Linux memfd shared memory with SCM_RIGHTS fd passing. Added `runtime`
+  supervision with restart policies, backoff, kill/restart and context-stop
+  tests; added `runtime/sandbox` rlimit, no-new-privs, capability-drop,
+  user/network/mount/pid namespace, cgroup, Landlock, and seccomp allow-list
+  primitives with subprocess tests (Landlock denial exercised). Added
+  `brokers/network` (capability-scoped HTTP fetch over IPC) and
+  `brokers/storage` (partition/origin-isolated key-value store over IPC) with
+  authorization and isolation tests. P9-IPC-001/002 and P9-RT-001 are
+  `Verified`; P9-SEC-001 and P9-BROKER-001/002 are `Implemented/Partial` pending
+  renderer/broker process wiring and the full escape/preflight suite.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -669,12 +684,12 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
 |---|---|---|---|---|---|---|
-| P9-IPC-001 | Framing and capability protocol | Planned | - | - | N/A | - |
-| P9-IPC-002 | Shared memory | Planned | - | - | N/A | - |
-| P9-RT-001 | Process supervisor | Planned | - | - | N/A | - |
-| P9-SEC-001 | Sandbox primitives | Planned | - | - | Unassessed | - |
-| P9-BROKER-001 | Network broker | Planned | - | - | N/A | - |
-| P9-BROKER-002 | Storage broker | Planned | - | - | N/A | - |
+| P9-IPC-001 | Framing and capability protocol | Verified | Y | Y | N/A | - |
+| P9-IPC-002 | Shared memory | Verified | Y | Y | N/A | - |
+| P9-RT-001 | Process supervisor | Verified | Y | Y | N/A | - |
+| P9-SEC-001 | Sandbox primitives | Implemented | Y | Y | Partial | - |
+| P9-BROKER-001 | Network broker | Implemented | Y | Y | Partial | - |
+| P9-BROKER-002 | Storage broker | Implemented | Y | Y | Partial | - |
 
 ## Phase 10 — JavaScript, Web APIs, and Platforms
 

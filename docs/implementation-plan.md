@@ -33,8 +33,10 @@ work.
 > (WOFF2/Brotli, font-display timing, OpenType features, 3D transforms). Phase 8
 > is implemented: X11 input, clipboard, MIT-SHM, browser tabs/session, rasterized
 > chrome, and the interactive `cmd/netsurf` shell; P8-SHELL-002 remains Partial
-> for full browsing-context edges. See [`handover.md`](./handover.md) for the
-> status and gaps.
+> for full browsing-context edges. Phase 9 IPC framing, shared memory, and
+> process supervision are Verified; sandbox and network/storage broker
+> primitives are Implemented/Partial pending the sandboxed process wiring.
+> See [`handover.md`](./handover.md) for the status and gaps.
 
 ## How to read a task
 

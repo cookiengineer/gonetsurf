@@ -39,6 +39,8 @@ rendered pages (`netsurfctl show`). Phase 7 is complete: 10 tasks Verified and
 OpenType features, 3D transforms). Phase 8 is implemented: X11 input, clipboard,
 MIT-SHM, tab/session model, rasterized browser chrome, and the `cmd/netsurf`
 interactive shell; P8-SHELL-002 remains Partial for full browsing-context edges.
+Phase 9 IPC framing, shared memory, and supervision are Verified; sandbox and
+broker primitives are implemented but not yet wired through sandboxed processes.
 See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
 

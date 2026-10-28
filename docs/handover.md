@@ -30,10 +30,11 @@ and tracked task-by-task in [`task-tracking.md`](./task-tracking.md).
 | 6 | Layout: box tree, box model, block/inline/table/flex/grid, positioning, text | **Done** (11 Verified, 3 Partial for Phase 7 paint/font residuals) |
 | 7 | Paint/fonts/images/color | **Done** (10 Verified, 3 Partial with recorded dependencies; no Planned tasks) |
 | 8 | X11 window/UI shell | **Done** (5 Verified, 1 Partial for full browsing-context edges) |
-| 9–10 | Process sandbox/JS/Web APIs | **Not started** |
+| 9 | Process sandbox/brokers | **Started** (IPC/shared memory/supervisor Verified; sandbox and brokers Partial) |
+| 10 | JS/Web APIs | **Not started** |
 | X | Cross-cutting backlog (forms, downloads, print, a11y, devtools) | **Not started** |
 
-Totals: **85 Verified, 8 Implemented/Partial, 24 Planned, 0 Blocked**. There are no open
+Totals: **88 Verified, 11 Implemented/Partial, 18 Planned, 0 Blocked**. There are no open
 bugs recorded.
 
 There is now an interactive browser executable: `go run ./cmd/netsurf [url]` opens an
@@ -61,7 +62,7 @@ go test ./urls/ -run=^$ -fuzz=FuzzParse -fuzztime=30s
 
 Current verification baseline:
 
-- 273 Go files across 48 packages, 112 test files, 494 test/fuzz/benchmark functions.
+- 294 Go files across 53 packages, 119 test files, 517 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -176,6 +177,14 @@ Current verification baseline:
   frame and tile benchmarks are recorded.
 - Reftests: `internal/reftest` and `netsurfctl reftest` render test/reference
   HTML documents and compare them with the pixel harness.
+- IPC/supervision: `ipc` provides versioned framing, cancellation, capability
+  tokens, memfd shared memory, and fd passing; `runtime` supervises processes
+  with restart/backoff/stop policies; `runtime/sandbox` provides rlimits,
+  no-new-privs, capability dropping, namespaces, cgroups, Landlock, and seccomp
+  primitives. Landlock denial and kill/restart behavior are tested.
+- Brokers: `brokers/network` performs capability-scoped HTTP fetches over IPC;
+  `brokers/storage` implements a partition/origin-isolated key-value store over
+  IPC with authorization and isolation tests.
 - Headless paint: `rendering.RenderDocument` drives parse → style → layout → paint,
   and `netsurfctl render` writes the result to PNG. The E2E golden
   (`rendering/testdata/golden/page.png`) exercises backgrounds, borders, and
@@ -239,6 +248,11 @@ Current verification baseline:
 | `windowing/` | Display/window abstraction, input/clipboard events, headless backend, and the pure-Go X11 presenter with MIT-SHM. |
 | `browsers/` | Tab, navigation/history, and session model. |
 | `shells/` | Rasterized browser chrome, input routing, and the dirty-frame event loop. |
+| `ipc/` | Versioned framing, capability tokens, memfd shared memory, and fd passing. |
+| `runtime/` | Process supervisor with restart/backoff/stop policies. |
+| `runtime/sandbox/` | Linux rlimits, namespaces, capabilities, Landlock, cgroups, and seccomp primitives. |
+| `brokers/network/` | Capability-scoped HTTP fetch broker over IPC. |
+| `brokers/storage/` | Partition/origin-isolated storage broker over IPC. |
 | `internal/pixeltest/` | Golden/reference image comparison used by rendering tests. |
 | `protocols/http1/` | Custom HTTP/1.1 client: ordered headers, strict framing, chunked+trailers, pool, redirects, conditional/range. |
 | `protocols/tls/` | TLS 1.3 client config, ALPN, ECH field, GREASE values. |
@@ -257,8 +271,8 @@ Current verification baseline:
 | `cmd/corpusgen/` | Refresh and normalize the vendored WPT, URL, HTML, and CSS corpora. |
 | `cmd/propertygen/` | Generate the property registry from pinned specs and WPT grammar assertions. |
 
-The target layout (including not-yet-created packages such as `webapis/`, `runtime/`,
-`brokers/`, `engines/`, `ipc/`, `farbling/`, and `javascripts/sobek/`) is described in
+The target layout (including not-yet-created packages such as `webapis/`,
+`engines/`, `farbling/`, and `javascripts/sobek/`) is described in
 [`architecture.md`](./architecture.md). Those are design targets; only the packages in the
 table above exist today.
 
@@ -384,8 +398,9 @@ Recorded in the relevant design docs under "Decisions":
    reftest subset and CI thresholds, then close the remaining non-blocking
    gaps (`background-blend-mode`, SVG text/use/clipPath/mask/pattern/filter,
    animated image playback).
-4. **Start Phase 9.** Move the renderer into the sandboxed process and the
-   network/storage into capability-scoped brokers.
+4. **Finish Phase 9.** Wire the renderer through the IPC transport, move
+   sockets/cache/cookies into the network broker, back the storage broker with
+   persistent partitioned storage, and run the full sandbox escape suite.
 5. **Deepen CSS feature coverage** as later phases need it: full CSSOM IDL
    surface, media query serialization, and cascade edge cases.
 6. **Close the remaining Partial network task** (TLS GREASE/ECH) when the

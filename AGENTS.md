@@ -32,7 +32,8 @@ go test ./urls/ -run='^$' -fuzz='^FuzzParse$' -fuzztime=30s   # a single target
 ```
 
 Registered targets cover every parser package, the style shorthand expander,
-the rasterizer, the image decoder, the color converter, and the cache path mapper. Add a target when a new parser is
+the rasterizer, the image decoder, the color converter, IPC framing, and the
+cache path mapper. Add a target when a new parser is
 introduced.
 
 ## Rules
