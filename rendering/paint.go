@@ -225,8 +225,11 @@ func paintRoundedBorders(surface *Surface, xPos, yPos, width, height float64, si
 			centerY := float64(yPixel) + 0.5
 			sideIndex, normalDistance, along := nearestBorderSide(xPos, yPos, width, height, centerX, centerY)
 			side := sides[sideIndex]
-			if !borderVisible(side) || normalDistance > side.width {
+			if !borderVisible(side) {
 				continue
+			}
+			if normalDistance > side.width {
+				normalDistance = side.width
 			}
 			color := borderColorForStyle(side, []string{"top", "right", "bottom", "left"}[sideIndex])
 			coverage := ring

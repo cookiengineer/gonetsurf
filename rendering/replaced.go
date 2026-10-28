@@ -45,7 +45,7 @@ func (painter *Painter) paintReplacedContent(box *layouts.Box, surface *Surface,
 				}
 				painter.framePainted[box.Node] = true
 				contentRect := Rect{X: contentX, Y: contentY, Width: contentWidth, Height: contentHeight}
-				surface.DrawImage(frame.Image(), contentRect, contentRect, nil, 1)
+				surface.DrawImage(frame.Image(), contentRect, contentRect, contentClipMask(box, surface, contentRect), 1)
 			}
 		}
 		return
@@ -86,7 +86,28 @@ func (painter *Painter) paintReplacedContent(box *layouts.Box, surface *Surface,
 		}
 	}
 	destination := objectFitRect(contentRect, intrinsicWidth, intrinsicHeight, fit)
-	surface.DrawImage(picture, destination, contentRect, nil, 1)
+	surface.DrawImage(picture, destination, contentRect, contentClipMask(box, surface, contentRect), 1)
+}
+
+// contentClipMask clips replaced content to the content-edge curve, as
+// required by CSS Backgrounds and Borders 3 §4.3 and exercised by WPT
+// css/css-backgrounds/border-radius-clip-001.html.
+func contentClipMask(box *layouts.Box, surface *Surface, contentRect Rect) *Mask {
+	if box == nil || box.Style == nil || surface == nil {
+		return nil
+	}
+	base := box.ContainingWidth
+	if base <= 0 {
+		base = box.Width
+	}
+	radii := borderRadii(box.Style, box.Width, box.Height, base)
+	contentRadii := insetRadii(radii, areaInsets(box, "content-box", base))
+	if !hasNonZeroRadii(contentRadii) {
+		return nil
+	}
+	path := NewPath()
+	path.AddRoundedRect(contentRect, contentRadii)
+	return RasterizeFill(path, surface.Width, surface.Height, NonZeroFill)
 }
 
 func imageSourceFor(node *dom.Node, contentWidth float64) string {

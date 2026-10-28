@@ -51,15 +51,27 @@ func (painter *Painter) paintStackingContextWithEffects(box *layouts.Box, surfac
 	childOffsetX := offsetX + deltaX
 	childOffsetY := offsetY + deltaY
 
+	if mask := roundedPaddingClipMask(box, surface, childOffsetX, childOffsetY); mask != nil {
+		layer := NewSurface(surface.Width, surface.Height)
+		layer.SetClip(surface.Clip())
+		painter.paintBoxContents(box, layer, childOffsetX, childOffsetY, false)
+		surface.DrawImage(layer.Image(), Rect{Width: float64(surface.Width), Height: float64(surface.Height)}, surface.Clip(), mask, 1)
+	} else {
+		painter.paintBoxContents(box, surface, childOffsetX, childOffsetY, true)
+	}
+	painter.paintScrollbars(box, surface, xPos, yPos)
+}
+
+func (painter *Painter) paintBoxContents(box *layouts.Box, surface *Surface, contentOffsetX, contentOffsetY float64, clipContent bool) {
 	clip := surface.Clip()
 	hasClip := true
 	if box.ClipX || box.ClipY {
-		clip = boxClipRect(box, offsetX, offsetY, surface.Width, surface.Height).intersect(clip)
+		clip = boxClipRect(box, contentOffsetX, contentOffsetY, surface.Width, surface.Height).intersect(clip)
 	}
 
 	var entries []stackingEntry
 	counter := 0
-	collectStackingEntries(box, childOffsetX-box.ScrollLeft, childOffsetY-box.ScrollTop, clip, hasClip, &entries, &counter)
+	collectStackingEntries(box, contentOffsetX-box.ScrollLeft, contentOffsetY-box.ScrollTop, clip, hasClip, &entries, &counter)
 	sort.SliceStable(entries, func(first, second int) bool {
 		if entries[first].zIndex == entries[second].zIndex {
 			return entries[first].order < entries[second].order
@@ -72,13 +84,16 @@ func (painter *Painter) paintStackingContextWithEffects(box *layouts.Box, surfac
 			painter.paintStackingEntry(surface, entry)
 		}
 	}
-	painter.paintContent(box, surface, childOffsetX, childOffsetY)
+	if clipContent {
+		painter.paintContent(box, surface, contentOffsetX, contentOffsetY)
+	} else {
+		painter.paintContentRaw(box, surface, contentOffsetX, contentOffsetY)
+	}
 	for _, entry := range entries {
 		if entry.zIndex >= 0 {
 			painter.paintStackingEntry(surface, entry)
 		}
 	}
-	painter.paintScrollbars(box, surface, xPos, yPos)
 }
 
 func (painter *Painter) paintStackingEntry(surface *Surface, entry stackingEntry) {
@@ -94,6 +109,31 @@ func (painter *Painter) paintStackingEntry(surface *Surface, entry stackingEntry
 	surface.SetClip(previousClip)
 }
 
+// roundedPaddingClipMask clips overflow to the padding-edge curve. CSS
+// Backgrounds and Borders 3 §4.3 requires non-visible overflow to follow the
+// curved padding edge.
+func roundedPaddingClipMask(box *layouts.Box, surface *Surface, offsetX, offsetY float64) *Mask {
+	if box == nil || box.Style == nil || surface == nil || !box.ClipX || !box.ClipY {
+		return nil
+	}
+	base := box.ContainingWidth
+	if base <= 0 {
+		base = box.Width
+	}
+	radii := borderRadii(box.Style, box.Width, box.Height, base)
+	paddingRadii := insetRadii(radii, areaInsets(box, "padding-box", base))
+	if !hasNonZeroRadii(paddingRadii) {
+		return nil
+	}
+	paddingRect := boxAreaRect(box, "padding-box", offsetX, offsetY, base)
+	if paddingRect.Width <= 0 || paddingRect.Height <= 0 {
+		return nil
+	}
+	path := NewPath()
+	path.AddRoundedRect(paddingRect, paddingRadii)
+	return RasterizeFill(path, surface.Width, surface.Height, NonZeroFill)
+}
+
 func (painter *Painter) paintPseudoContext(box *layouts.Box, surface *Surface, offsetX, offsetY float64) {
 	if box == nil {
 		return
@@ -105,6 +145,17 @@ func (painter *Painter) paintPseudoContext(box *layouts.Box, surface *Surface, o
 }
 
 func (painter *Painter) paintContent(box *layouts.Box, surface *Surface, offsetX, offsetY float64) {
+	if mask := roundedPaddingClipMask(box, surface, offsetX, offsetY); mask != nil {
+		layer := NewSurface(surface.Width, surface.Height)
+		layer.SetClip(surface.Clip())
+		painter.paintContentRaw(box, layer, offsetX, offsetY)
+		surface.DrawImage(layer.Image(), Rect{Width: float64(surface.Width), Height: float64(surface.Height)}, surface.Clip(), mask, 1)
+		return
+	}
+	painter.paintContentRaw(box, surface, offsetX, offsetY)
+}
+
+func (painter *Painter) paintContentRaw(box *layouts.Box, surface *Surface, offsetX, offsetY float64) {
 	if box != nil && box.Node != nil && painter.framePainted[box.Node] {
 		return
 	}

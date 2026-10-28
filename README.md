@@ -53,8 +53,9 @@ See [`docs/handover.md`](docs/handover.md) for the detailed snapshot and
   flex/grid formatting, floats, positioning, writing modes, bidi, text shaping,
   overflow, and incremental layout.
 - **Rendering:** anti-aliased rasterizer, borders/backgrounds/radii/shadows/gradients,
-  PNG/JPEG/GIF/WebP images, SVG subset, fonts and `@font-face`, Color 4 conversion,
-  stacking/opacity/2D+3D transforms, compositor damage tracking, and PNG output.
+  rounded content and overflow clipping, PNG/JPEG/GIF/WebP images, SVG subset,
+  fonts and `@font-face`, Color 4 conversion, stacking/opacity/2D+3D transforms,
+  compositor damage tracking, and PNG output.
 - **Browser shell:** tabs, history, session restore, opener/child contexts, same-document
   navigation, inline iframes, page and nested scrolling, autocomplete/search, tab
   reordering, rasterized chrome, and a broker-backed privacy dashboard.

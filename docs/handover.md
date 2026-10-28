@@ -66,7 +66,7 @@ go test ./urls/ -run='^$' -fuzz='^FuzzParse$' -fuzztime=30s
 
 Current verification baseline:
 
-- 315 Go files across 54 packages, 129 test files, 578 test/fuzz/benchmark functions.
+- 315 Go files across 54 packages, 129 test files, 581 test/fuzz/benchmark functions.
 - `go test ./...` green for all packages; `go vet ./...` clean; `gofmt` clean.
 - WHATWG URL conformance: **896/896** `urltestdata.json` cases pass.
 - CSS tokenizer conformance: **223/223** reference tokenization cases pass.
@@ -147,7 +147,10 @@ Current verification baseline:
   draws multi-layer backgrounds (color and data-URL images with repeat,
   position, size, origin, and clip), all CSS border styles with radii,
   per-side colors, outer/inset box shadows with blur, and bilinear image
-  sampling. Raster and feature goldens compare PNGs with `internal/pixeltest`,
+  sampling. Replaced content is clipped to the curved content edge, non-visible
+  overflow is clipped to the rounded padding edge, and rounded border arcs keep
+  the border ring intact through the curves, following CSS Backgrounds and
+  Borders 3 §4.2–4.3 and WPT `border-radius-clip-001`. Raster and feature goldens compare PNGs with `internal/pixeltest`,
   and `FuzzRaster` plus fill/stroke/blit benchmarks cover the hot paths.
 - Images: `rendering/images` decodes PNG/JPEG/GIF/WebP with GIF frame
   composition and delays, applies JPEG EXIF orientation, and enforces

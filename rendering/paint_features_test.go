@@ -221,3 +221,63 @@ html, body { margin:0; padding:0; background:#ffffff }
 		t.Errorf("center fill = %#v, want blue", pixel)
 	}
 }
+
+// Covers CSS Backgrounds and Borders 3 §4.3 and the equivalent of WPT
+// css/css-backgrounds/border-radius-clip-001.html for replaced elements.
+func TestRoundedReplacedContentClipping(t *testing.T) {
+	source := `<!doctype html><html><head><style>
+html, body { margin:0; padding:0 }
+img { display:block; width:40px; height:40px; border-radius:50%; }
+</style></head><body><img id="image"></body></html>`
+	document := mustParseTestPage(t, source)
+	image := document.GetElementById("image")
+	image.SetAttribute("src", imageDataURL(t, color.NRGBA{R: 255, A: 255}, 40, 40))
+	surface := renderTestPage(t, source, 40, 40)
+	if pixel := pixelAt(surface, 1, 1); pixel != (Color{Red: 255, Green: 255, Blue: 255, Alpha: 255}) {
+		t.Errorf("rounded image corner = %#v, want white", pixel)
+	}
+	if pixel := pixelAt(surface, 20, 20); pixel.Red < 200 {
+		t.Errorf("rounded image center = %#v, want image red", pixel)
+	}
+}
+
+func TestRoundedReplacedContentRespectsBorderAndPadding(t *testing.T) {
+	source := `<!doctype html><html><head><style>
+html, body { margin:0; padding:0 }
+img { display:block; box-sizing:border-box; width:60px; height:60px; border:10px solid #0000ff; padding:5px; border-radius:30px; }
+</style></head><body><img id="image"></body></html>`
+	document := mustParseTestPage(t, source)
+	image := document.GetElementById("image")
+	image.SetAttribute("src", imageDataURL(t, color.NRGBA{R: 255, A: 255}, 60, 60))
+	surface := renderTestPage(t, source, 60, 60)
+	if pixel := pixelAt(surface, 16, 16); pixel.Red > 200 && pixel.Blue < 50 {
+		t.Errorf("image leaked into border curve corner = %#v", pixel)
+	}
+	if pixel := pixelAt(surface, 5, 30); pixel.Blue < 200 || pixel.Red > 50 {
+		t.Errorf("border pixel = %#v, want blue", pixel)
+	}
+	if pixel := pixelAt(surface, 30, 30); pixel.Red < 200 {
+		t.Errorf("content center = %#v, want red", pixel)
+	}
+}
+
+func TestRoundedOverflowClipsDescendantContent(t *testing.T) {
+	source := `<!doctype html><html><head><style>
+html, body { margin:0; padding:0 }
+#box { display:block; box-sizing:border-box; width:60px; height:60px; border:10px solid #0000ff; border-radius:30px; overflow:hidden }
+#child { display:block; width:40px; height:40px; background:#ff0000 }
+</style></head><body><div id="box"><div id="child"></div></div></body></html>`
+	surface := renderTestPage(t, source, 60, 60)
+	if pixel := pixelAt(surface, 1, 1); pixel != (Color{Red: 255, Green: 255, Blue: 255, Alpha: 255}) {
+		t.Errorf("rounded overflow corner = %#v, want white", pixel)
+	}
+	if pixel := pixelAt(surface, 11, 11); pixel.Blue < 150 {
+		t.Errorf("rounded border arc = %#v, want blue", pixel)
+	}
+	if pixel := pixelAt(surface, 5, 30); pixel.Blue < 200 {
+		t.Errorf("border pixel = %#v, want blue", pixel)
+	}
+	if pixel := pixelAt(surface, 30, 30); pixel.Red < 200 {
+		t.Errorf("content center = %#v, want red", pixel)
+	}
+}

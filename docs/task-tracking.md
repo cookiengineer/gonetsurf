@@ -607,7 +607,10 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   Generated content now supports styled `::before`/`::after` boxes with string,
   empty-string, and `attr()` content; atomic pseudo runs retain logical inline
   order and honor margins/padding/borders, including default inline pseudo
-  elements. Verified against headless Chromium on
+  elements. Rounded replaced content is clipped to the content-edge curve and
+  rounded overflow containers clip descendants to the padding-edge curve, and
+  rounded border corner arcs retain the full border ring, matching CSS
+  Backgrounds and Borders 3 §4.2–4.3 and WPT `border-radius-clip-001`. Verified against headless Chromium on
   `https://cookie.engineer/index.html`; remaining differences include counters,
   `content: url()`, other pseudo-elements, and scripting.
 
