@@ -33,8 +33,10 @@ type Document struct {
 	Sandbox     SandboxFlags
 	ReadyState  ReadyState
 
-	idIndex    map[string]*Node
-	indexDirty bool
+	idIndex         map[string]*Node
+	indexDirty      bool
+	mutationVersion uint64
+	dirtyNodes      map[*Node]bool
 }
 
 // NewDocument returns a new empty document.
@@ -87,9 +89,36 @@ func (document *Document) CreateDocumentType(name, publicID, systemID string) *N
 	return node
 }
 
-// markDirty invalidates derived indexes.
+// markDirty invalidates derived indexes and advances the mutation version.
 func (document *Document) markDirty() {
 	document.indexDirty = true
+	document.mutationVersion++
+}
+
+func (document *Document) markNodeDirty(node *Node) {
+	if document.dirtyNodes == nil {
+		document.dirtyNodes = map[*Node]bool{}
+	}
+	document.dirtyNodes[node] = true
+}
+
+// MutationVersion returns a monotonically increasing mutation counter.
+func (document *Document) MutationVersion() uint64 {
+	return document.mutationVersion
+}
+
+// DirtyNodes returns the nodes mutated since the last ClearDirty call.
+func (document *Document) DirtyNodes() []*Node {
+	nodes := make([]*Node, 0, len(document.dirtyNodes))
+	for node := range document.dirtyNodes {
+		nodes = append(nodes, node)
+	}
+	return nodes
+}
+
+// ClearDirty clears the dirty-node set.
+func (document *Document) ClearDirty() {
+	document.dirtyNodes = nil
 }
 
 // rebuildIndex rebuilds the id index.

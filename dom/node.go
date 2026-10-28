@@ -152,6 +152,10 @@ func (node *Node) InsertBefore(child, reference *Node) {
 	if child == nil || child == node {
 		return
 	}
+	defer func() {
+		node.notifyMutation()
+		child.notifyMutation()
+	}()
 	if child.parent != nil {
 		child.parent.removeChild(child)
 	}
@@ -190,6 +194,7 @@ func (node *Node) removeChild(child *Node) {
 	child.parent = nil
 	child.setOwner(nil)
 	if node.owner != nil {
+		node.owner.markNodeDirty(node)
 		node.owner.markDirty()
 	}
 }
@@ -298,6 +303,7 @@ func (node *Node) RemoveChildren() {
 	}
 	node.children = nil
 	if node.owner != nil {
+		node.owner.markNodeDirty(node)
 		node.owner.markDirty()
 	}
 }

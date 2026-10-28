@@ -127,6 +127,7 @@ func (node *Node) RemoveClass(class string) {
 
 func (node *Node) notifyMutation() {
 	if node.owner != nil {
+		node.owner.markNodeDirty(node)
 		node.owner.markDirty()
 	}
 }
