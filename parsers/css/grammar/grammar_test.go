@@ -25,6 +25,16 @@ func testContext() *Context {
 		}
 		return 0
 	}
+	context.Types["angle"] = func(values []parser.ComponentValue) int {
+		token, ok := parser.AsToken(firstValue(values))
+		if ok && token.Type == tokenizer.TokenDimension {
+			switch token.Value {
+			case "deg", "rad", "turn":
+				return 1
+			}
+		}
+		return 0
+	}
 	context.Types["percentage"] = func(values []parser.ComponentValue) int {
 		token, ok := parser.AsToken(firstValue(values))
 		if ok && token.Type == tokenizer.TokenPercentage {
@@ -185,11 +195,96 @@ func TestParseStructure(t *testing.T) {
 	}
 }
 
+func TestMatchOptionalAndRepetition(t *testing.T) {
+	tests := []struct {
+		definition string
+		input      string
+		want       bool
+	}{
+		{"<length>?", "", true},
+		{"<length>?", "10px", true},
+		{"<length>*", "", true},
+		{"<length>*", "10px 20px", true},
+		{"<length>+", "", false},
+		{"<length>+", "10px", true},
+		{"<length>{0,2}", "", true},
+		{"<length>{0,2}", "10px 20px", true},
+		{"<length>{0,2}", "10px 20px 30px", false},
+		{"[ <length># ]?", "", true},
+		{"[ <length># ]?", "10px, 20px", true},
+	}
+	for _, test := range tests {
+		if _, ok := match(t, test.definition, test.input); ok != test.want {
+			t.Errorf("match(%q, %q) = %v, want %v", test.definition, test.input, ok, test.want)
+		}
+	}
+}
+
+func TestMatchAnyOrderRejectsDuplicates(t *testing.T) {
+	if _, ok := match(t, "<length> || auto", "auto auto"); ok {
+		t.Error("expected duplicate auto to fail ||")
+	}
+	if _, ok := match(t, "<length> && <percentage>", "10px 50% 20%"); ok {
+		t.Error("expected duplicate percentage to fail &&")
+	}
+}
+
+func TestMatchOptionalInAnyOrder(t *testing.T) {
+	if _, ok := match(t, "<length> || auto?", "10px"); !ok {
+		t.Error("expected optional term in || to be absent")
+	}
+	if _, ok := match(t, "<length> || auto?", "auto"); !ok {
+		t.Error("expected optional term in || to be present")
+	}
+}
+
+func TestMatchRangeAndDelimiters(t *testing.T) {
+	if _, ok := match(t, "[a | b]!", "a"); !ok {
+		t.Error("expected required group to match")
+	}
+	if _, ok := match(t, "a / b", "a / b"); !ok {
+		t.Error("expected literal delimiter to match")
+	}
+	if _, ok := match(t, "a / b", "a b"); ok {
+		t.Error("expected missing delimiter to fail")
+	}
+}
+
 func TestParseErrors(t *testing.T) {
 	if _, err := Parse("[ a b"); err == nil {
 		t.Error("expected missing bracket error")
 	}
 	if _, err := Parse("<length"); err == nil {
 		t.Error("expected missing > error")
+	}
+	if _, err := Parse("<length>{2,1}"); err == nil {
+		t.Error("expected invalid range error")
+	}
+}
+
+func TestMatchNumericRanges(t *testing.T) {
+	tests := []struct {
+		definition string
+		input      string
+		want       bool
+	}{
+		{"<length [0,∞]>", "10px", true},
+		{"<length [0,∞]>", "0", true},
+		{"<length [0,∞]>", "-10px", false},
+		{"<number [1,1000]>", "1", true},
+		{"<number [1,1000]>", "1000", true},
+		{"<number [1,1000]>", "0", false},
+		{"<number [1,1000]>", "1001", false},
+		{"<angle [-90deg,90deg]>", "0deg", true},
+		{"<angle [-90deg,90deg]>", "-90deg", true},
+		{"<angle [-90deg,90deg]>", "91deg", false},
+		{"<number (0,1)>", "0", false},
+		{"<number (0,1)>", "1", false},
+		{"<number (0,1)>", "0.5", true},
+	}
+	for _, test := range tests {
+		if _, ok := match(t, test.definition, test.input); ok != test.want {
+			t.Errorf("match(%q, %q) = %v, want %v", test.definition, test.input, ok, test.want)
+		}
 	}
 }

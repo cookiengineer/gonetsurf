@@ -34,6 +34,9 @@ func TestComponentValueListConformance(t *testing.T) {
 			t.Errorf("ParseComponentValueList(%q)\n got: %#v\nwant: %#v", input, got, entry.Expected)
 		}
 	}
+	if skipped != 2 {
+		t.Errorf("component value list: got %d documented skips, want 2", skipped)
+	}
 	t.Logf("component value list: %d entries, %d skipped", len(entries), skipped)
 }
 
@@ -69,14 +72,8 @@ func TestOneDeclarationConformance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	skipped := 0
 	for _, entry := range entries {
 		input := entry.Input.(string)
-		if declarationValueKeepsLeadingWhitespace(entry.Expected) {
-			skipped++
-			t.Logf("skip %q: 2021 corpus preserved declaration-value whitespace; current spec discards it", input)
-			continue
-		}
 		declaration, err := parser.ParseDeclaration(input)
 		var got any
 		if err != nil {
@@ -88,25 +85,7 @@ func TestOneDeclarationConformance(t *testing.T) {
 			t.Errorf("ParseDeclaration(%q)\n got: %#v\nwant: %#v", input, got, entry.Expected)
 		}
 	}
-	t.Logf("one declaration: %d entries, %d skipped", len(entries), skipped)
-}
-
-// declarationValueKeepsLeadingWhitespace reports whether an expected
-// declaration value begins or ends with a whitespace marker, which the current
-// specification no longer produces.
-func declarationValueKeepsLeadingWhitespace(expected any) bool {
-	items, ok := expected.([]any)
-	if !ok || len(items) != 4 || items[0] != "declaration" {
-		return false
-	}
-	value, ok := items[2].([]any)
-	if !ok || len(value) == 0 {
-		return false
-	}
-	if value[0] == " " {
-		return true
-	}
-	return value[len(value)-1] == " "
+	t.Logf("one declaration: %d entries", len(entries))
 }
 
 func TestOneRuleConformance(t *testing.T) {
@@ -151,6 +130,73 @@ func TestBlockContentsConformance(t *testing.T) {
 	runListConformance(t, "blocks_contents.json", func(input string) []any {
 		return serializeNodes(parser.ParseBlockContents(input))
 	})
+}
+
+// TestStylesheetSerializeRoundTrip checks that parsing and serializing a
+// stylesheet reaches a stable form after the first pass.
+func TestStylesheetSerializeRoundTrip(t *testing.T) {
+	entries, err := conformance.Load("testdata/stylesheet.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		input := entry.Input.(string)
+		first := serializeRulesCSS(parser.ParseStylesheet(input))
+		second := serializeRulesCSS(parser.ParseStylesheet(first))
+		if first != second {
+			t.Errorf("stylesheet is not stable for %q:\n first: %q\nsecond: %q", input, first, second)
+		}
+	}
+}
+
+func serializeRulesCSS(nodes []parser.Node) string {
+	var builder strings.Builder
+	for _, node := range nodes {
+		builder.WriteString(serializeNodeCSS(node))
+	}
+	return builder.String()
+}
+
+func serializeNodeCSS(node parser.Node) string {
+	switch typed := node.(type) {
+	case *parser.QualifiedRule:
+		var builder strings.Builder
+		builder.WriteString(strings.TrimSpace(parser.SerializeValues(typed.Prelude)))
+		builder.WriteString("{")
+		if typed.Block != nil {
+			builder.WriteString(parser.SerializeValues(typed.Block.Value))
+		}
+		builder.WriteString("}")
+		return builder.String()
+	case *parser.AtRule:
+		var builder strings.Builder
+		builder.WriteString("@")
+		builder.WriteString(typed.Name)
+		if prelude := strings.TrimSpace(parser.SerializeValues(typed.Prelude)); prelude != "" {
+			builder.WriteString(" ")
+			builder.WriteString(prelude)
+		}
+		if typed.Block == nil {
+			builder.WriteString(";")
+			return builder.String()
+		}
+		builder.WriteString("{")
+		builder.WriteString(parser.SerializeValues(typed.Block.Value))
+		builder.WriteString("}")
+		return builder.String()
+	case *parser.Declaration:
+		var builder strings.Builder
+		builder.WriteString(typed.Name)
+		builder.WriteString(":")
+		builder.WriteString(strings.TrimSpace(parser.SerializeValues(typed.Value)))
+		if typed.Important {
+			builder.WriteString("!important")
+		}
+		builder.WriteString(";")
+		return builder.String()
+	default:
+		return ""
+	}
 }
 
 func runListConformance(t *testing.T, filename string, run func(string) []any) {

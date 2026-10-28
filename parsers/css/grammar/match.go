@@ -1,8 +1,11 @@
 package grammar
 
 import (
+	"strings"
+
 	"gonetsurf/parsers/css/parser"
 	"gonetsurf/parsers/css/tokenizer"
+	cssvalues "gonetsurf/parsers/css/values"
 )
 
 // TypeMatcher attempts to match a named type such as <length> at the start of
@@ -135,9 +138,110 @@ func matchReference(reference *Reference, state *state) bool {
 	if consumed <= 0 {
 		return false
 	}
+	if reference.Range != nil && !rangeAllows(state.values[start], reference.Range) {
+		return false
+	}
 	state.position += consumed
 	state.captures[reference.Name] = state.values[start:state.position]
 	return true
+}
+
+func rangeAllows(value parser.ComponentValue, numericRange *NumericRange) bool {
+	if function, ok := value.(*parser.Function); ok && isDynamicFunction(function.Name) {
+		return true
+	}
+	token, ok := parser.AsToken(value)
+	if !ok {
+		return false
+	}
+	number := token.Number
+	unit := ""
+	switch token.Type {
+	case tokenizer.TokenNumber:
+	case tokenizer.TokenPercentage:
+		unit = "%"
+	case tokenizer.TokenDimension:
+		unit = strings.ToLower(token.Value)
+	default:
+		return false
+	}
+	if numericRange.Unit != "" && unit != "" {
+		converted, ok := convertRangeUnit(number, unit, numericRange.Unit)
+		if !ok {
+			return false
+		}
+		number = converted
+	}
+	if numericRange.HasMin {
+		if numericRange.MinInclusive {
+			if number < numericRange.Min {
+				return false
+			}
+		} else if number <= numericRange.Min {
+			return false
+		}
+	}
+	if numericRange.HasMax {
+		if numericRange.MaxInclusive {
+			if number > numericRange.Max {
+				return false
+			}
+		} else if number >= numericRange.Max {
+			return false
+		}
+	}
+	return true
+}
+
+func isDynamicFunction(name string) bool {
+	switch strings.ToLower(name) {
+	case "var", "env", "attr", "calc", "min", "max", "clamp", "round", "mod", "rem",
+		"abs", "sign", "hypot", "pow", "sqrt", "log", "exp", "sin", "cos", "tan",
+		"asin", "acos", "atan", "atan2":
+		return true
+	default:
+		return false
+	}
+}
+
+func convertRangeUnit(number float64, unit, target string) (float64, bool) {
+	value := cssvalues.Value{Number: number, Unit: unit}
+	kind, _, ok := cssvalues.ClassifyUnit(unit)
+	if !ok {
+		return 0, false
+	}
+	value.Kind = kind
+	switch target {
+	case "deg":
+		return cssvalues.ToDegrees(value)
+	case "px":
+		return cssvalues.ToPixels(value, 0, 0)
+	case "s":
+		return cssvalues.ToSeconds(value)
+	case "hz":
+		return number * frequencyFactor(unit, target), true
+	case "dppx":
+		return number * resolutionFactor(unit, target), true
+	default:
+		return 0, false
+	}
+}
+
+func frequencyFactor(unit, target string) float64 {
+	if unit == target {
+		return 1
+	}
+	if unit == "khz" && target == "hz" {
+		return 1000
+	}
+	return 0
+}
+
+func resolutionFactor(unit, target string) float64 {
+	if unit == target {
+		return 1
+	}
+	return 0
 }
 
 func (context *Context) cachedExpression(name, definition string) (Expression, error) {

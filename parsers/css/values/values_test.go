@@ -2,6 +2,7 @@ package values
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"testing"
 
@@ -136,5 +137,152 @@ func TestCalcInvalid(t *testing.T) {
 				t.Errorf("Simplify(%q) unexpectedly succeeded", input)
 			}
 		}
+	}
+}
+
+func TestMathFunctions(t *testing.T) {
+	tests := []struct {
+		input  string
+		kind   UnitKind
+		number float64
+		unit   string
+	}{
+		{"round(10px, 3px)", Length, 9, "px"},
+		{"round(up, 10px, 3px)", Length, 12, "px"},
+		{"round(down, 10px, 3px)", Length, 9, "px"},
+		{"round(to-zero, -10px, 3px)", Length, -9, "px"},
+		{"mod(10, 3)", Other, 1, ""},
+		{"rem(-10, 3)", Other, -1, ""},
+		{"abs(-5px)", Length, 5, "px"},
+		{"sign(-5px)", Other, -1, ""},
+		{"hypot(3px, 4px)", Length, 5, "px"},
+		{"pow(2, 3)", Other, 8, ""},
+		{"sqrt(9)", Other, 3, ""},
+		{"log(8, 2)", Other, 3, ""},
+		{"exp(0)", Other, 1, ""},
+		{"sin(30deg)", Other, 0.5, ""},
+		{"cos(0deg)", Other, 1, ""},
+		{"tan(45deg)", Other, 1, ""},
+		{"asin(0.5)", Angle, 30, "deg"},
+		{"acos(1)", Angle, 0, "deg"},
+		{"atan(1)", Angle, 45, "deg"},
+		{"atan2(1, 1)", Angle, 45, "deg"},
+	}
+	for _, test := range tests {
+		function := parseMathFunction(t, test.input)
+		expression, ok := ParseMath(function)
+		if !ok {
+			t.Errorf("ParseMath(%q) failed", test.input)
+			continue
+		}
+		value, ok := expression.Simplify()
+		if !ok {
+			t.Errorf("Simplify(%q) failed", test.input)
+			continue
+		}
+		if value.Kind != test.kind || value.Unit != test.unit || math.Abs(value.Number-test.number) > 1e-9 {
+			t.Errorf("Simplify(%q) = %v%s (%v), want %v%s", test.input, value.Number, value.Unit, value.Kind, test.number, test.unit)
+		}
+	}
+}
+
+func TestMathFunctionsRejectInvalidArguments(t *testing.T) {
+	for _, input := range []string{
+		"round(up, 10px)",
+		"round(10px, 0px)",
+		"mod(10, 0)",
+		"sqrt(-1)",
+		"log(0)",
+		"pow(2px, 2)",
+		"sin(red)",
+	} {
+		function := parseMathFunction(t, input)
+		expression, ok := ParseMath(function)
+		if !ok {
+			continue
+		}
+		if _, simplified := expression.Simplify(); simplified {
+			t.Errorf("Simplify(%q) unexpectedly succeeded", input)
+		}
+	}
+}
+
+type mathCase struct {
+	Input  string  `json:"input"`
+	Kind   string  `json:"kind"`
+	Number float64 `json:"number"`
+	Unit   string  `json:"unit"`
+}
+
+func TestMathConformance(t *testing.T) {
+	encoded, err := os.ReadFile("testdata/math.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cases []mathCase
+	if err := json.Unmarshal(encoded, &cases); err != nil {
+		t.Fatal(err)
+	}
+	kinds := map[string]UnitKind{
+		"Length": Length,
+		"Angle":  Angle,
+		"Other":  Other,
+	}
+	for _, testCase := range cases {
+		function := parseMathFunction(t, testCase.Input)
+		expression, ok := ParseMath(function)
+		if !ok {
+			t.Errorf("ParseMath(%q) failed", testCase.Input)
+			continue
+		}
+		value, ok := expression.Simplify()
+		if !ok {
+			t.Errorf("Simplify(%q) failed", testCase.Input)
+			continue
+		}
+		if value.Kind != kinds[testCase.Kind] || value.Unit != testCase.Unit || math.Abs(value.Number-testCase.Number) > 1e-9 {
+			t.Errorf("Simplify(%q) = %v%s (%v), want %v%s", testCase.Input, value.Number, value.Unit, value.Kind, testCase.Number, testCase.Unit)
+		}
+	}
+}
+
+func TestUnitConversions(t *testing.T) {
+	lengths := []struct {
+		unit  string
+		value float64
+		want  float64
+	}{
+		{"px", 1, 1},
+		{"in", 1, 96},
+		{"cm", 2.54, 96},
+		{"mm", 25.4, 96},
+		{"q", 101.6, 96},
+		{"pc", 1, 16},
+		{"pt", 72, 96},
+	}
+	for _, test := range lengths {
+		got, ok := ToPixels(Value{Kind: Length, Number: test.value, Unit: test.unit}, 0, 0)
+		if !ok || math.Abs(got-test.want) > 1e-9 {
+			t.Errorf("ToPixels(%v%s) = %v, want %v", test.value, test.unit, got, test.want)
+		}
+	}
+	angles := []struct {
+		unit  string
+		value float64
+		want  float64
+	}{
+		{"deg", 180, 180},
+		{"grad", 200, 180},
+		{"rad", math.Pi, 180},
+		{"turn", 0.5, 180},
+	}
+	for _, test := range angles {
+		got, ok := ToDegrees(Value{Kind: Angle, Number: test.value, Unit: test.unit})
+		if !ok || math.Abs(got-test.want) > 1e-9 {
+			t.Errorf("ToDegrees(%v%s) = %v, want %v", test.value, test.unit, got, test.want)
+		}
+	}
+	if got, ok := ToSeconds(Value{Kind: Time, Number: 500, Unit: "ms"}); !ok || math.Abs(got-0.5) > 1e-9 {
+		t.Errorf("ToSeconds(500ms) = %v", got)
 	}
 }

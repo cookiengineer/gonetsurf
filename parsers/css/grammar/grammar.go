@@ -7,7 +7,9 @@ package grammar
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode"
 )
 
 // Expression is a node in a value-definition grammar.
@@ -20,9 +22,22 @@ type Expression interface {
 type Reference struct {
 	Name     string
 	Property bool
+	Range    *NumericRange
 }
 
 func (*Reference) expression() {}
+
+// NumericRange is an optional numeric range attached to a type reference,
+// such as <length [0,∞]> or <angle [-90deg,90deg]>.
+type NumericRange struct {
+	Min          float64
+	Max          float64
+	HasMin       bool
+	HasMax       bool
+	MinInclusive bool
+	MaxInclusive bool
+	Unit         string
+}
 
 // Keyword is a literal identifier, such as auto or none.
 type Keyword struct {
@@ -262,30 +277,117 @@ func (parser *definitionParser) parseAtom() (Expression, error) {
 
 func (parser *definitionParser) parseReference() (Expression, error) {
 	parser.position++
-	parser.skipSpace()
-	property := false
-	if parser.peek() == '\'' {
-		property = true
-		parser.position++
-	}
-	var name strings.Builder
-	for parser.position < len(parser.input) {
-		current := parser.input[parser.position]
-		if current == '>' {
-			break
-		}
-		if current == '\'' {
-			parser.position++
-			continue
-		}
-		name.WriteRune(current)
+	start := parser.position
+	for parser.position < len(parser.input) && parser.input[parser.position] != '>' {
 		parser.position++
 	}
 	if parser.peek() != '>' {
 		return nil, fmt.Errorf("css grammar: missing > at %d", parser.position)
 	}
+	raw := strings.TrimSpace(string(parser.input[start:parser.position]))
 	parser.position++
-	return &Reference{Name: name.String(), Property: property}, nil
+	property := false
+	if strings.HasPrefix(raw, "'") && strings.HasSuffix(raw, "'") && len(raw) >= 2 {
+		property = true
+		raw = strings.Trim(raw, "'")
+	}
+	if property {
+		return &Reference{Name: strings.TrimSpace(raw), Property: true}, nil
+	}
+	name, numericRange, err := splitReferenceRange(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &Reference{Name: name, Range: numericRange}, nil
+}
+
+func splitReferenceRange(raw string) (string, *NumericRange, error) {
+	index := -1
+	for position, current := range raw {
+		if current == '[' || current == '(' {
+			index = position
+			break
+		}
+	}
+	if index < 0 {
+		return raw, nil, nil
+	}
+	name := strings.TrimSpace(raw[:index])
+	numericRange, err := parseNumericRange(strings.TrimSpace(raw[index:]))
+	if err != nil {
+		return "", nil, err
+	}
+	return name, numericRange, nil
+}
+
+func parseNumericRange(text string) (*NumericRange, error) {
+	if len(text) < 2 {
+		return nil, fmt.Errorf("css grammar: invalid range %q", text)
+	}
+	open := text[0]
+	close := text[len(text)-1]
+	if (open != '[' && open != '(') || (close != ']' && close != ')') {
+		return nil, fmt.Errorf("css grammar: invalid range %q", text)
+	}
+	body := text[1 : len(text)-1]
+	comma := strings.Index(body, ",")
+	if comma < 0 {
+		return nil, fmt.Errorf("css grammar: invalid range %q", text)
+	}
+	numericRange := &NumericRange{
+		MinInclusive: open == '[',
+		MaxInclusive: close == ']',
+	}
+	minimum, ok, err := parseRangeBound(strings.TrimSpace(body[:comma]))
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		numericRange.Min = minimum.number
+		numericRange.HasMin = true
+		numericRange.Unit = minimum.unit
+	}
+	maximum, ok, err := parseRangeBound(strings.TrimSpace(body[comma+1:]))
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		numericRange.Max = maximum.number
+		numericRange.HasMax = true
+		if numericRange.Unit == "" {
+			numericRange.Unit = maximum.unit
+		}
+	}
+	return numericRange, nil
+}
+
+type rangeBound struct {
+	number float64
+	unit   string
+}
+
+func parseRangeBound(text string) (rangeBound, bool, error) {
+	switch text {
+	case "∞", "+∞":
+		return rangeBound{}, false, nil
+	case "-∞":
+		return rangeBound{}, false, nil
+	}
+	index := 0
+	if index < len(text) && (text[index] == '+' || text[index] == '-') {
+		index++
+	}
+	for index < len(text) && (unicode.IsDigit(rune(text[index])) || text[index] == '.') {
+		index++
+	}
+	if index == 0 {
+		return rangeBound{}, false, fmt.Errorf("css grammar: invalid range bound %q", text)
+	}
+	number, err := strconv.ParseFloat(text[:index], 64)
+	if err != nil {
+		return rangeBound{}, false, fmt.Errorf("css grammar: invalid range bound %q", text)
+	}
+	return rangeBound{number: number, unit: strings.TrimSpace(text[index:])}, true, nil
 }
 
 func (parser *definitionParser) parseMultiplier(item Expression) (Expression, error) {
@@ -344,6 +446,9 @@ func (parser *definitionParser) maybeRange(repeat *Repeat) (Expression, error) {
 	parser.skipSpace()
 	if parser.peek() != '}' {
 		return nil, fmt.Errorf("css grammar: missing } at %d", parser.position)
+	}
+	if repeat.Max >= 0 && repeat.Max < repeat.Min {
+		return nil, fmt.Errorf("css grammar: invalid range {%d,%d}", repeat.Min, repeat.Max)
 	}
 	parser.position++
 	return repeat, nil
