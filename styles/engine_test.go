@@ -303,8 +303,8 @@ func TestIncrementalRestyle(t *testing.T) {
 	if _, ok := styles[second]; ok {
 		t.Error("removed node should not remain in the style cache")
 	}
-	if got := styles[first].GetString("margin-top"); got != "" {
-		t.Errorf("sibling margin after removal = %q, want unset", got)
+	if got := styles[first].GetString("margin-top"); got != "16px" {
+		t.Errorf("sibling margin after removal = %q, want the UA 1em margin", got)
 	}
 }
 

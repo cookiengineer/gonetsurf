@@ -132,15 +132,18 @@ func (engine *Engine) Compute(element *dom.Node, parent *Style) *Style {
 			if !ok {
 				continue
 			}
-			declarations = append(declarations, cascade.Declaration{
-				Property:    declaration.Name,
-				Value:       declaration.Value,
-				Important:   declaration.Important,
-				Origin:      cascade.OriginAuthor,
-				Specificity: selectors.Specificity{A: 1},
-				Order:       order,
-			})
-			order++
+			cssDeclaration := &cssom.Declaration{Name: declaration.Name, Value: declaration.Value, Important: declaration.Important}
+			for _, expanded := range expandDeclaration(cssDeclaration) {
+				declarations = append(declarations, cascade.Declaration{
+					Property:    expanded.Name,
+					Value:       expanded.Value,
+					Important:   expanded.Important,
+					Origin:      cascade.OriginAuthor,
+					Specificity: selectors.Specificity{A: 1},
+					Order:       order,
+				})
+				order++
+			}
 		}
 	}
 	result := cascade.Cascade(declarations)
@@ -299,15 +302,17 @@ func (engine *Engine) collectRule(rule cssom.Rule, origin cascade.Origin, parent
 		if list, err := selectors.Parse(selectorText); err == nil && element.MatchesSelectorList(list) {
 			specificity := list.MaxSpecificity()
 			for _, declaration := range typed.Declarations {
-				*declarations = append(*declarations, cascade.Declaration{
-					Property:    declaration.Name,
-					Value:       declaration.Value,
-					Important:   declaration.Important,
-					Origin:      origin,
-					Specificity: specificity,
-					Order:       *order,
-				})
-				*order++
+				for _, expanded := range expandDeclaration(declaration) {
+					*declarations = append(*declarations, cascade.Declaration{
+						Property:    expanded.Name,
+						Value:       expanded.Value,
+						Important:   expanded.Important,
+						Origin:      origin,
+						Specificity: specificity,
+						Order:       *order,
+					})
+					*order++
+				}
 			}
 		}
 		for _, nested := range typed.CSSRules() {
