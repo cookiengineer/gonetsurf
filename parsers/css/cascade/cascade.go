@@ -1,10 +1,11 @@
 // Package cascade implements the CSS cascade and inheritance ordering.
 //
 // It orders declarations by origin, importance, cascade layer, specificity,
-// and document order, and records the winning value for each property.
+// and document order, and resolves custom properties, var() substitution,
+// inheritance, and the defaulting keywords.
 //
 // See specifications/css/cascade-4.html, specifications/css/cascade-5.html,
-// specifications/css/css-variables-1.html.
+// specifications/css/variables-1.html.
 package cascade
 
 import (
@@ -44,10 +45,16 @@ type Declaration struct {
 	Transition bool
 }
 
-// Result holds the winning declaration for each property.
+// Result holds the winning declaration for each property and the full
+// declaration list used by revert and revert-layer.
 type Result struct {
-	winners map[string]Declaration
+	winners      map[string]Declaration
+	declarations []Declaration
 }
+
+// InheritedValues maps property names to the computed values inherited from
+// an element's parent.
+type InheritedValues map[string][]parser.ComponentValue
 
 // IsCustom reports whether a property name is a custom property.
 func IsCustom(name string) bool {
@@ -56,7 +63,10 @@ func IsCustom(name string) bool {
 
 // Cascade selects the winning declaration for every property.
 func Cascade(declarations []Declaration) *Result {
-	result := &Result{winners: map[string]Declaration{}}
+	result := &Result{
+		winners:      map[string]Declaration{},
+		declarations: append([]Declaration(nil), declarations...),
+	}
 	for _, declaration := range declarations {
 		existing, ok := result.winners[declaration.Property]
 		if !ok || declaration.beats(existing) {
@@ -129,32 +139,221 @@ func (declaration Declaration) beats(other Declaration) bool {
 	return declaration.Order > other.Order
 }
 
-// Resolve computes the cascaded value of a property, applying inheritance and
-// the defaulting keywords.
-func (result *Result) Resolve(property string, parent []parser.ComponentValue, initial []parser.ComponentValue) []parser.ComponentValue {
-	declaration, ok := result.Get(property)
-	if !ok {
-		if properties.IsInherited(property) && parent != nil {
-			return parent
-		}
-		return initial
+// effectiveWinner applies the all shorthand to non-custom properties.
+func (result *Result) effectiveWinner(property string) (Declaration, bool) {
+	propertyWinner, hasProperty := result.winners[property]
+	if IsCustom(property) {
+		return propertyWinner, hasProperty
 	}
-	keyword := singleKeyword(declaration.Value)
+	allWinner, hasAll := result.winners["all"]
+	if !hasAll || (hasProperty && !allWinner.beats(propertyWinner)) {
+		return propertyWinner, hasProperty
+	}
+	allWinner.Property = property
+	return allWinner, true
+}
+
+// Resolve computes the cascaded value of a property, applying inheritance,
+// defaulting keywords, and var() substitution.
+func (result *Result) Resolve(property string, parent []parser.ComponentValue, initial []parser.ComponentValue) []parser.ComponentValue {
+	parentValues := InheritedValues{}
+	if parent != nil {
+		parentValues[property] = parent
+	}
+	value, _ := result.ResolveChecked(property, parentValues, initial)
+	return value
+}
+
+// ResolveWithCustom computes a value using inherited values for custom
+// properties as well as the property itself.
+func (result *Result) ResolveWithCustom(property string, parent InheritedValues, initial []parser.ComponentValue) []parser.ComponentValue {
+	value, _ := result.ResolveChecked(property, parent, initial)
+	return value
+}
+
+// ResolveChecked computes a value and reports whether the declaration was
+// valid at computed-value time. A false result means the value fell back to
+// inherit or initial because a var() reference was invalid or cyclic.
+func (result *Result) ResolveChecked(property string, parent InheritedValues, initial []parser.ComponentValue) ([]parser.ComponentValue, bool) {
+	return result.resolve(property, parent, initial, map[string]bool{})
+}
+
+func (result *Result) resolve(property string, parent InheritedValues, initial []parser.ComponentValue, stack map[string]bool) ([]parser.ComponentValue, bool) {
+	winner, ok := result.effectiveWinner(property)
+	if !ok {
+		return inheritedOrInitial(property, parent, initial), true
+	}
+	keyword := singleKeyword(winner.Value)
 	switch keyword {
 	case "inherit":
-		return parent
+		return parentValue(property, parent, initial), true
 	case "initial":
-		return initial
+		return initialValue(property, initial), true
 	case "unset":
-		if properties.IsInherited(property) {
-			return parent
-		}
-		return initial
-	case "revert", "revert-layer":
-		return initial
-	default:
-		return declaration.Value
+		return inheritedOrInitial(property, parent, initial), true
+	case "revert":
+		return result.revert(property, winner, parent, initial, stack)
+	case "revert-layer":
+		return result.revertLayer(property, winner, parent, initial, stack)
 	}
+	value, valid := result.substitute(winner.Value, parent, stack)
+	if !valid {
+		return inheritedOrInitial(property, parent, initial), false
+	}
+	return value, true
+}
+
+func (result *Result) revert(property string, current Declaration, parent InheritedValues, initial []parser.ComponentValue, stack map[string]bool) ([]parser.ComponentValue, bool) {
+	declarations := make([]Declaration, 0, len(result.declarations))
+	for _, declaration := range result.declarations {
+		if declaration.Origin < current.Origin {
+			declarations = append(declarations, declaration)
+		}
+	}
+	if len(declarations) == 0 {
+		return inheritedOrInitial(property, parent, initial), true
+	}
+	return Cascade(declarations).resolve(property, parent, initial, stack)
+}
+
+func (result *Result) revertLayer(property string, current Declaration, parent InheritedValues, initial []parser.ComponentValue, stack map[string]bool) ([]parser.ComponentValue, bool) {
+	if current.Layer == 0 {
+		return result.revert(property, current, parent, initial, stack)
+	}
+	declarations := make([]Declaration, 0, len(result.declarations))
+	for _, declaration := range result.declarations {
+		if declaration.Origin != current.Origin {
+			continue
+		}
+		if declaration.Layer < current.Layer {
+			declarations = append(declarations, declaration)
+		}
+	}
+	if len(declarations) == 0 {
+		return result.revert(property, current, parent, initial, stack)
+	}
+	return Cascade(declarations).resolve(property, parent, initial, stack)
+}
+
+func (result *Result) substitute(values []parser.ComponentValue, parent InheritedValues, stack map[string]bool) ([]parser.ComponentValue, bool) {
+	substituted := make([]parser.ComponentValue, 0, len(values))
+	for _, value := range values {
+		function, ok := value.(*parser.Function)
+		if ok && strings.EqualFold(function.Name, "var") {
+			name, fallback, ok := parseVarArguments(function.Value)
+			if !ok {
+				return nil, false
+			}
+			custom, valid := result.resolveCustom(name, parent, stack)
+			if !valid {
+				if fallback == nil {
+					return nil, false
+				}
+				custom, valid = result.substitute(fallback, parent, stack)
+				if !valid {
+					return nil, false
+				}
+			}
+			substituted = append(substituted, custom...)
+			continue
+		}
+		if function, ok := value.(*parser.Function); ok {
+			inner, valid := result.substitute(function.Value, parent, stack)
+			if !valid {
+				return nil, false
+			}
+			substituted = append(substituted, &parser.Function{Name: function.Name, Value: inner})
+			continue
+		}
+		if block, ok := value.(*parser.Block); ok {
+			inner, valid := result.substitute(block.Value, parent, stack)
+			if !valid {
+				return nil, false
+			}
+			substituted = append(substituted, &parser.Block{Associated: block.Associated, Value: inner})
+			continue
+		}
+		substituted = append(substituted, value)
+	}
+	return substituted, true
+}
+
+func (result *Result) resolveCustom(name string, parent InheritedValues, stack map[string]bool) ([]parser.ComponentValue, bool) {
+	if stack[name] {
+		return nil, false
+	}
+	stack[name] = true
+	defer delete(stack, name)
+	winner, ok := result.effectiveWinner(name)
+	if !ok {
+		if value, inherited := parent[name]; inherited && value != nil {
+			return value, true
+		}
+		return nil, false
+	}
+	switch singleKeyword(winner.Value) {
+	case "inherit", "unset":
+		if value, inherited := parent[name]; inherited && value != nil {
+			return value, true
+		}
+		return nil, false
+	case "initial":
+		return nil, false
+	case "revert":
+		return result.revert(name, winner, parent, nil, stack)
+	case "revert-layer":
+		return result.revertLayer(name, winner, parent, nil, stack)
+	}
+	return result.substitute(winner.Value, parent, stack)
+}
+
+func parseVarArguments(values []parser.ComponentValue) (string, []parser.ComponentValue, bool) {
+	trimmed := trimWhitespace(values)
+	if len(trimmed) == 0 {
+		return "", nil, false
+	}
+	nameToken, ok := parser.AsToken(trimmed[0])
+	if !ok || nameToken.Type != tokenizer.TokenIdent || !IsCustom(nameToken.Value) {
+		return "", nil, false
+	}
+	index := 1
+	for index < len(trimmed) && parser.IsWhitespace(trimmed[index]) {
+		index++
+	}
+	if index >= len(trimmed) {
+		return nameToken.Value, nil, true
+	}
+	token, ok := parser.AsToken(trimmed[index])
+	if !ok || token.Type != tokenizer.TokenComma {
+		return "", nil, false
+	}
+	return nameToken.Value, trimWhitespace(trimmed[index+1:]), true
+}
+
+func inheritedOrInitial(property string, parent InheritedValues, initial []parser.ComponentValue) []parser.ComponentValue {
+	if properties.IsInherited(property) || IsCustom(property) {
+		if value, ok := parent[property]; ok && value != nil {
+			return value
+		}
+		if IsCustom(property) {
+			return nil
+		}
+	}
+	return initialValue(property, initial)
+}
+
+func parentValue(property string, parent InheritedValues, initial []parser.ComponentValue) []parser.ComponentValue {
+	if value, ok := parent[property]; ok && value != nil {
+		return value
+	}
+	return initialValue(property, initial)
+}
+
+func initialValue(property string, initial []parser.ComponentValue) []parser.ComponentValue {
+	if IsCustom(property) {
+		return nil
+	}
+	return initial
 }
 
 func singleKeyword(value []parser.ComponentValue) string {
