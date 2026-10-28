@@ -15,6 +15,7 @@ type stackingEntry struct {
 	offsetY float64
 	clip    Rect
 	hasClip bool
+	pseudo  bool
 }
 
 func (painter *Painter) paintStackingContext(box *layouts.Box, surface *Surface, offsetX, offsetY float64) {
@@ -26,12 +27,16 @@ func (painter *Painter) paintStackingContextWithEffects(box *layouts.Box, surfac
 		return
 	}
 	if applyEffects {
-		matrix, hasTransform := parseBoxTransform(box)
+		matrix, hasTransform := parseBoxTransformMatrix(box)
 		opacity, hasOpacity := boxOpacity(box)
 		if hasTransform || hasOpacity {
 			layer := NewSurface(surface.Width, surface.Height)
 			painter.paintStackingContextWithEffects(box, layer, offsetX, offsetY, false)
-			compositeTransformed(surface, layer, matrix, opacity)
+			if matrix.isAffine2D() {
+				compositeTransformed(surface, layer, matrix.affine2D(), opacity)
+			} else {
+				compositeProjective(surface, layer, matrix, opacity)
+			}
 			return
 		}
 	}
@@ -81,8 +86,22 @@ func (painter *Painter) paintStackingEntry(surface *Surface, entry stackingEntry
 	if entry.hasClip {
 		surface.SetClip(entry.clip)
 	}
-	painter.paintStackingContextWithEffects(entry.box, surface, entry.offsetX, entry.offsetY, true)
+	if entry.pseudo {
+		painter.paintPseudoContext(entry.box, surface, entry.offsetX, entry.offsetY)
+	} else {
+		painter.paintStackingContextWithEffects(entry.box, surface, entry.offsetX, entry.offsetY, true)
+	}
 	surface.SetClip(previousClip)
+}
+
+func (painter *Painter) paintPseudoContext(box *layouts.Box, surface *Surface, offsetX, offsetY float64) {
+	if box == nil {
+		return
+	}
+	xPos, yPos, deltaX, deltaY := paintOrigin(box, offsetX, offsetY)
+	painter.paintDecorations(box, surface, xPos, yPos)
+	painter.paintContent(box, surface, offsetX-box.ScrollLeft+deltaX, offsetY-box.ScrollTop+deltaY)
+	painter.paintScrollbars(box, surface, xPos, yPos)
 }
 
 func (painter *Painter) paintContent(box *layouts.Box, surface *Surface, offsetX, offsetY float64) {
@@ -149,15 +168,49 @@ func collectStackingEntries(box *layouts.Box, offsetX, offsetY float64, clip Rec
 		if child == nil || child.Kind == layouts.TextBox {
 			continue
 		}
-		if isStackingContext(child) || isPositioned(child) {
-			entryClip := clip
+		if isStackingContext(child) {
 			*entries = append(*entries, stackingEntry{
 				box:     child,
 				zIndex:  effectiveZIndex(child),
 				order:   *counter,
 				offsetX: offsetX,
 				offsetY: offsetY,
-				clip:    entryClip,
+				clip:    clip,
+				hasClip: hasClip,
+			})
+			*counter++
+			continue
+		}
+		if isPositioned(child) {
+			if zIndexAuto(child.Style.GetString("z-index")) {
+				*entries = append(*entries, stackingEntry{
+					box:     child,
+					zIndex:  0,
+					order:   *counter,
+					offsetX: offsetX,
+					offsetY: offsetY,
+					clip:    clip,
+					hasClip: hasClip,
+					pseudo:  true,
+				})
+				*counter++
+				childClip := clip
+				childHasClip := hasClip
+				if child.ClipX || child.ClipY {
+					rect := boxClipRect(child, offsetX, offsetY, 1<<30, 1<<30)
+					childClip = rect.intersect(clip)
+					childHasClip = true
+				}
+				collectStackingEntries(child, offsetX-child.ScrollLeft, offsetY-child.ScrollTop, childClip, childHasClip, entries, counter)
+				continue
+			}
+			*entries = append(*entries, stackingEntry{
+				box:     child,
+				zIndex:  effectiveZIndex(child),
+				order:   *counter,
+				offsetX: offsetX,
+				offsetY: offsetY,
+				clip:    clip,
 				hasClip: hasClip,
 			})
 			*counter++
@@ -203,7 +256,7 @@ func isStackingContext(box *layouts.Box) bool {
 	if box == nil || box.Style == nil {
 		return false
 	}
-	if _, hasTransform := parseBoxTransform(box); hasTransform {
+	if hasBoxTransform(box) {
 		return true
 	}
 	if _, hasOpacity := boxOpacity(box); hasOpacity {

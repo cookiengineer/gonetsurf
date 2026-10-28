@@ -35,9 +35,10 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 > 3 Partial); Phase 8 has 5 Verified and 1 Partial (browsing-context edges).
 > Phase 9 is complete: IPC, shared memory, supervision, sandbox primitives,
 > the network broker (cookies/cache and INET seccomp guard), and the persistent
-> storage broker are all Verified. Phase 6 is now fully Verified as well
-> (sticky paint, real font metrics, and scrollbar painting closed). Totals:
-> **94 Verified, 5 Implemented/Partial, 18 Planned, 0 Blocked**. For a
+> storage broker are all Verified. Phase 6 is fully Verified, and Phase 7's
+> paint/stacking task now covers 3D/perspective and individual transforms,
+> `srcset`/`picture`, video posters, and z-auto nesting. Totals:
+> **95 Verified, 4 Implemented/Partial, 18 Planned, 0 Blocked**. For a
 > narrative summary see [`handover.md`](./handover.md).
 
 ## Summary
@@ -51,12 +52,12 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | 4 CSS/CSSOM | 14 | 14 | 0 | 0 | 0 |
 | 5 Style | 6 | 6 | 0 | 0 | 0 |
 | 6 Layout | 14 | 14 | 0 | 0 | 0 |
-| 7 Paint/Fonts/Images/Color | 13 | 10 | 3 | 0 | 0 |
+| 7 Paint/Fonts/Images/Color | 13 | 11 | 2 | 0 | 0 |
 | 8 Window/UI | 6 | 5 | 1 | 0 | 0 |
 | 9 Process/Sandbox | 6 | 6 | 0 | 0 | 0 |
 | 10 JS/Web APIs/Platforms | 10 | 0 | 0 | 10 | 0 |
 | Cross-cutting | 8 | 0 | 0 | 8 | 0 |
-| **Total** | **117** | **94** | **5** | **18** | **0** |
+| **Total** | **117** | **95** | **4** | **18** | **0** |
 
 ## Progress log
 
@@ -574,6 +575,15 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
   `rendering/fonts` shaper. Added painted sticky and scrollbar integration
   tests. P6-LAYOUT-007/012/013 are now `Verified`; Phase 6 is 14/14 Verified.
 
+- **2026-10-28 (P7-PAINT-003 close-out):** Added full 3D/projective CSS
+  transforms and compositing, individual `translate`/`rotate`/`scale`
+  properties, `transform-origin` z, `perspective`/`perspective-origin`, and
+  corrected nested z-index handling for positioned `z-index:auto` subtrees.
+  Replaced-content painting now selects `srcset`/`picture` sources, renders
+  video posters, and leaves canvas transparent. Added individual-transform,
+  perspective, z-auto nesting, srcset/picture, and video-poster tests.
+  P7-PAINT-003 is `Verified`.
+
 ## Phase 0 — Foundations
 
 | ID | Task | Status | UT | E2E | Spec | Bugs |
@@ -697,7 +707,7 @@ A task reaches `Verified` only when `UT=Y`, `E2E=Y`, `Spec=Compliant`, and `Bugs
 | P7-FONT-003 | Web-font loading, caching, and font-display | Implemented | Y | Y | Partial | - |
 | P7-FONT-004 | Author-font matching and text features | Implemented | Y | Y | Partial | - |
 | P7-COLOR-001 | Color management | Verified | Y | Y | Compliant | - |
-| P7-PAINT-003 | Paint and stacking | Implemented | Y | Y | Partial | - |
+| P7-PAINT-003 | Paint and stacking | Verified | Y | Y | Compliant | - |
 | P7-COMPOSITE-001 | Compositor and damage tracking | Verified | Y | Y | N/A | - |
 | P7-PAINT-004 | Headless renderer and pixel harness | Verified | Y | Y | N/A | - |
 

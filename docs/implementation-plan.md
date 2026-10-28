@@ -21,7 +21,7 @@ work.
 > kerning, scrollbar-aware overflow, and dirty-subtree reflow with clean-subtree reuse
 > are implemented. All 14 Phase 6 tasks are `Verified`, including sticky paint
 > integration, real font metrics/shaping, and scrollbar painting. A 35-case geometry conformance
-> harness and `netsurfctl layout` cover the pipeline. Phase 7 has started: the
+> harness and `netsurfctl layout` cover the pipeline. Phase 7 is nearly complete: the
 > `rendering` rasterizer is `Verified`, backgrounds/borders/radii/shadows,
 > PNG/JPEG/GIF/WebP image decoding, Color 4 conversions, linear/radial/conic
 > gradients, real font matching/shaping/glyph caching, and stacking/opacity/2D
@@ -29,8 +29,8 @@ work.
 > tracking are implemented; the headless renderer, pixel comparator, and
 > reftest runner are implemented (`netsurfctl render`, `netsurfctl reftest`),
 > and the X11 shell renders interactive pages (`netsurf show`).
-> Phase 7 is complete: 10 tasks Verified, 3 Partial with recorded dependencies
-> (WOFF2/Brotli, font-display timing, OpenType features, 3D transforms). Phase 8
+> Phase 7 has 11 tasks Verified and 2 Partial with recorded dependencies
+> (WOFF2/Brotli + font-display timing, and OpenType feature/variation shaping). Phase 8
 > is implemented: X11 input, clipboard, MIT-SHM, browser tabs/session, rasterized
 > chrome, and the interactive `cmd/netsurf` shell; P8-SHELL-002 remains Partial
 > for full browsing-context edges. Phase 9 IPC framing/shared memory, process

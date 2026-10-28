@@ -15,6 +15,8 @@ func FuzzTransformFunction(f *testing.F) {
 		"rotate(45deg)",
 		"skew(10deg, -5deg)",
 		"matrix(1, 0, 0, 1, 10, 20)",
+		"rotate3d(1, 0, 0, 45deg)",
+		"matrix3d(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1)",
 	} {
 		f.Add(seed)
 	}
@@ -24,6 +26,7 @@ func FuzzTransformFunction(f *testing.F) {
 		for _, value := range values {
 			if function, ok := value.(*parser.Function); ok {
 				_, _ = transformFunction(function, box)
+				_, _ = transformFunctionMatrix4(function, box)
 			}
 		}
 	})

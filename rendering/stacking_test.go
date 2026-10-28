@@ -138,3 +138,58 @@ html, body { margin:0; padding:0; background-color:#ffffff }
 	}
 	compareGolden(t, path, surface)
 }
+
+func TestIndividualTransformProperties(t *testing.T) {
+	source := `<!doctype html><html><head><style>
+html, body { margin:0; padding:0 }
+.box { position:absolute; left:0; top:0; width:20px; height:20px; background-color:#ff0000;
+       translate:20px 10px; scale:2; }
+</style></head><body><div class="box"></div></body></html>`
+	surface := renderTestPage(t, source, 80, 80)
+	if pixel := pixelAt(surface, 30, 25); pixel.Red < 200 {
+		t.Errorf("individual transform pixel = %#v, want red", pixel)
+	}
+	if pixel := pixelAt(surface, 55, 45); pixel.Red < 200 {
+		t.Errorf("scaled transform pixel = %#v, want red", pixel)
+	}
+}
+
+func TestPerspectiveTransform(t *testing.T) {
+	source := `<!doctype html><html><head><style>
+html, body { margin:0; padding:0; background-color:#ffffff }
+.box { position:absolute; left:20px; top:20px; width:40px; height:40px; background-color:#0000ff;
+       transform-origin:50% 50%; transform:perspective(200px) rotateY(45deg) }
+</style></head><body><div class="box"></div></body></html>`
+	surface := renderTestPage(t, source, 100, 100)
+	if pixel := pixelAt(surface, 40, 40); pixel.Blue < 150 {
+		t.Errorf("perspective center = %#v, want blue", pixel)
+	}
+	if pixel := pixelAt(surface, 2, 2); pixel.Red != 255 || pixel.Green != 255 || pixel.Blue != 255 {
+		t.Errorf("perspective background = %#v, want white", pixel)
+	}
+}
+
+func TestPerspectiveProperty(t *testing.T) {
+	source := `<!doctype html><html><head><style>
+html, body { margin:0; padding:0; background-color:#ffffff }
+.box { position:absolute; left:20px; top:20px; width:40px; height:40px; background-color:#00aa00;
+       perspective:200px; transform:rotateX(30deg) }
+</style></head><body><div class="box"></div></body></html>`
+	surface := renderTestPage(t, source, 100, 100)
+	if pixel := pixelAt(surface, 40, 40); pixel.Green < 130 {
+		t.Errorf("perspective property center = %#v, want green", pixel)
+	}
+}
+
+func TestPositionedAutoNestedZIndex(t *testing.T) {
+	source := `<!doctype html><html><head><style>
+html, body { margin:0; padding:0 }
+.auto { position:absolute; left:0; top:0; width:40px; height:40px; z-index:auto }
+.nested { position:absolute; left:0; top:0; width:40px; height:40px; background-color:#ff0000; z-index:5 }
+.sibling { position:absolute; left:0; top:0; width:40px; height:40px; background-color:#0000ff; z-index:1 }
+</style></head><body><div class="auto"><div class="nested"></div></div><div class="sibling"></div></body></html>`
+	surface := renderTestPage(t, source, 60, 60)
+	if pixel := pixelAt(surface, 20, 20); pixel.Red < 200 {
+		t.Errorf("nested z-index pixel = %#v, want red above z-index 1 sibling", pixel)
+	}
+}

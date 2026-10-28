@@ -1,6 +1,7 @@
 package rendering
 
 import (
+	"strconv"
 	"strings"
 
 	"gonetsurf/dom"
@@ -8,23 +9,17 @@ import (
 	"gonetsurf/urls"
 )
 
+type imageCandidate struct {
+	address string
+	width   float64
+	density float64
+}
+
 func (painter *Painter) paintReplacedContent(box *layouts.Box, surface *Surface, offsetX, offsetY float64) {
-	if box.Node == nil || box.Node.Type != dom.ElementNode || !strings.EqualFold(box.Node.Data, "img") {
+	if box.Node == nil || box.Node.Type != dom.ElementNode {
 		return
 	}
-	source, ok := box.Node.GetAttribute("src")
-	if !ok || strings.TrimSpace(source) == "" {
-		return
-	}
-	if painter.BaseURL != nil {
-		if resolved, err := urls.ParseReference(painter.BaseURL, source); err == nil {
-			source = resolved.String()
-		}
-	}
-	picture := painter.loadImageURL(source)
-	if picture == nil {
-		return
-	}
+	tag := strings.ToLower(box.Node.Data)
 	contentX := box.ContentX + offsetX
 	contentY := box.ContentY + offsetY
 	contentWidth := box.ContentWidth
@@ -36,6 +31,33 @@ func (painter *Painter) paintReplacedContent(box *layouts.Box, surface *Surface,
 		contentHeight = box.Height
 	}
 	if contentWidth <= 0 || contentHeight <= 0 {
+		return
+	}
+
+	var source string
+	switch tag {
+	case "img":
+		source = imageSourceFor(box.Node, contentWidth)
+	case "video":
+		if poster, ok := box.Node.GetAttribute("poster"); ok {
+			source = poster
+		}
+	case "canvas":
+		// Canvas content requires scripting; the element is transparent for now.
+		return
+	default:
+		return
+	}
+	if strings.TrimSpace(source) == "" {
+		return
+	}
+	if painter.BaseURL != nil {
+		if resolved, err := urls.ParseReference(painter.BaseURL, source); err == nil {
+			source = resolved.String()
+		}
+	}
+	picture := painter.loadImageURL(source)
+	if picture == nil {
 		return
 	}
 	contentRect := Rect{X: contentX, Y: contentY, Width: contentWidth, Height: contentHeight}
@@ -52,6 +74,117 @@ func (painter *Painter) paintReplacedContent(box *layouts.Box, surface *Surface,
 	}
 	destination := objectFitRect(contentRect, intrinsicWidth, intrinsicHeight, fit)
 	surface.DrawImage(picture, destination, contentRect, nil, 1)
+}
+
+func imageSourceFor(node *dom.Node, contentWidth float64) string {
+	candidatesText := ""
+	if node.Parent() != nil && strings.EqualFold(node.Parent().Data, "picture") {
+		for _, child := range node.Parent().Children() {
+			if child.Type != dom.ElementNode || !strings.EqualFold(child.Data, "source") {
+				continue
+			}
+			if value, ok := child.GetAttribute("srcset"); ok && strings.TrimSpace(value) != "" {
+				candidatesText = value
+				break
+			}
+		}
+	}
+	if candidatesText == "" {
+		if value, ok := node.GetAttribute("srcset"); ok {
+			candidatesText = value
+		}
+	}
+	if candidatesText != "" {
+		if chosen := chooseImageCandidate(candidatesText, contentWidth); chosen != "" {
+			return chosen
+		}
+	}
+	if source, ok := node.GetAttribute("src"); ok {
+		return source
+	}
+	return ""
+}
+
+func chooseImageCandidate(srcset string, contentWidth float64) string {
+	candidates := parseImageCandidates(srcset)
+	if len(candidates) == 0 {
+		return ""
+	}
+	hasWidth := false
+	for _, candidate := range candidates {
+		if candidate.width > 0 {
+			hasWidth = true
+			break
+		}
+	}
+	if hasWidth {
+		best := candidates[0]
+		bestWidth := 0.0
+		for _, candidate := range candidates {
+			if candidate.width <= 0 {
+				continue
+			}
+			if candidate.width >= contentWidth && (bestWidth == 0 || candidate.width < bestWidth) {
+				best = candidate
+				bestWidth = candidate.width
+			}
+		}
+		if bestWidth == 0 {
+			for _, candidate := range candidates {
+				if candidate.width > bestWidth {
+					best = candidate
+					bestWidth = candidate.width
+				}
+			}
+		}
+		return best.address
+	}
+	best := candidates[0]
+	bestDistance := 1.0
+	first := true
+	for _, candidate := range candidates {
+		density := candidate.density
+		if density <= 0 {
+			density = 1
+		}
+		distance := density - 1
+		if distance < 0 {
+			distance = -distance
+		}
+		if first || distance < bestDistance {
+			best = candidate
+			bestDistance = distance
+			first = false
+		}
+	}
+	return best.address
+}
+
+func parseImageCandidates(srcset string) []imageCandidate {
+	var candidates []imageCandidate
+	for _, part := range strings.Split(srcset, ",") {
+		fields := strings.Fields(strings.TrimSpace(part))
+		if len(fields) == 0 {
+			continue
+		}
+		candidate := imageCandidate{address: fields[0], density: 1}
+		if len(fields) > 1 {
+			descriptor := strings.ToLower(fields[1])
+			switch {
+			case strings.HasSuffix(descriptor, "w"):
+				if value, err := strconv.ParseFloat(strings.TrimSuffix(descriptor, "w"), 64); err == nil {
+					candidate.width = value
+					candidate.density = 0
+				}
+			case strings.HasSuffix(descriptor, "x"):
+				if value, err := strconv.ParseFloat(strings.TrimSuffix(descriptor, "x"), 64); err == nil {
+					candidate.density = value
+				}
+			}
+		}
+		candidates = append(candidates, candidate)
+	}
+	return candidates
 }
 
 func objectFitRect(content Rect, intrinsicWidth, intrinsicHeight float64, fit string) Rect {

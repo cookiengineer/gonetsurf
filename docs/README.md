@@ -25,24 +25,25 @@ logical properties, vertical flow, line-level bidi, generic-family text metrics 
 kerning, scrollbar-aware overflow, and dirty-subtree reflow all exist. A 35-case
 data-driven layout conformance harness passes, and `netsurfctl layout` exposes the full
 parse → style → layout pipeline for diagnostics. Phase 6 is fully verified, including
-sticky paint integration, real font metrics, and scrollbar painting. Phase 7 (painting) is complete:
+sticky paint integration, real font metrics, and scrollbar painting. Phase 7 (painting) is nearly complete:
 the `rendering` rasterizer is Verified (surfaces, paths, anti-aliasing, stroking,
 clipping, Porter-Duff), backgrounds/borders/radii/shadows, PNG/JPEG/GIF/WebP image
 decoding, Color 4 conversions (sRGB, Display P3, Lab/LCH, OKLab/OKLCH, and
 wide-gamut color spaces), linear/radial/conic gradients, real font matching/
-shaping/glyph caching, `@font-face`, SVG, stacking/opacity/2D transforms with
-replaced images, and compositor/damage tracking are implemented; the headless PNG
+shaping/glyph caching, `@font-face`, SVG, stacking/opacity/2D+3D transforms with
+individual transform properties, `srcset`/`picture`/video-poster replaced content,
+and compositor/damage tracking are implemented; the headless PNG
 renderer, golden pixel harness, and reftest comparator are implemented
 (`netsurfctl render`, `netsurfctl reftest`), and a pure-Go X11 presenter opens
-rendered pages (`netsurfctl show`). Phase 7 is complete: 10 tasks Verified and
-3 Partial with recorded dependencies (WOFF2/Brotli, font-display timing,
-OpenType features, 3D transforms). Phase 8 is implemented: X11 input, clipboard,
+rendered pages (`netsurfctl show`). Phase 7 has 11 Verified tasks and 2 Partial
+with recorded dependencies (WOFF2/Brotli + font-display timing, and OpenType
+feature/variation shaping). Phase 8 is implemented: X11 input, clipboard,
 MIT-SHM, tab/session model, rasterized browser chrome, and the `cmd/netsurf`
 interactive shell; P8-SHELL-002 remains Partial for full browsing-context edges.
 Phase 9 is complete: IPC framing/shared memory, process supervision, sandbox
 primitives, the network broker (cache/cookies + INET seccomp guard), and the
 persistent storage broker are Verified. The sandboxed `netsurf` shell fetches
-and stores everything through the broker. Totals: **94 Verified, 5 Partial,
+and stores everything through the broker. Totals: **95 Verified, 4 Partial,
 18 Planned**. Phase 10 (JavaScript/Web APIs) and the cross-cutting backlog
 remain. See [`handover.md`](./handover.md) for the full handover and
 [`task-tracking.md`](./task-tracking.md) for the task-by-task ledger.
